@@ -36,4 +36,11 @@ Here is the flow:
 - clone this repo.
 - `go build` (it will install required modules on it's own)
 
+For `hot-reloading`,
+```bash
+go get -u github.com/codegangsta/gin
+gin --port 5000 --appPort 3000
+# go to localhost:5000/health?message=hello
+```
+
 No worries about `GOPATH`. We have gomodules to the rescue.
