@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 )
 
 func main() {
@@ -34,6 +33,6 @@ func main() {
 	radio = Radio{}
 	fmt.Println(radio)
 
-	httpRouter := NewHTTPRouter(service)
-	http.ListenAndServe(":3000", httpRouter)
+	echoRouter := NewHTTPRouter(service)
+	echoRouter.Start(":3000")
 }
