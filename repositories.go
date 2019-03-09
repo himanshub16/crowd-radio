@@ -1,19 +1,21 @@
 package main
 
 type UserRepository interface {
-	InsertUser(user User) error
+	CreateOrUpdateUser(user User) error
+	GetUserByID(userID string) *User
 	close()
 }
 
 type LinkRepository interface {
-	InsertLink(link Link) error
+	InsertLink(link Link) int64
 	GetLinkById(id uint64) (*Link, error)
+	GetAllLinks() []Link
 	UpdateLink(link Link) error
 	close()
 }
 
 type VoteRepository interface {
-	MarkVote(link Link, user User) error
+	MarkVote(linkID int64, userID string, score int64)
 	close()
 }
 

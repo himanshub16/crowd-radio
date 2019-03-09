@@ -2,12 +2,15 @@ package main
 
 import (
 	"fmt"
+	"time"
 )
 
 type Service interface {
-	SubmitLink(url string) *Link
-	Vote(linkID uint64, score uint64) uint64
+	CreateOrUpdateUser(u User) error
+	SubmitLink(url, userid, dedicatedTo string) (*Link, error)
+	Vote(linkID int64, userID string, score int64)
 	Test(message string)
+	GetAllLinks() []Link
 	close()
 }
 
@@ -18,15 +21,33 @@ type ServiceImpl struct {
 	testRepo TestRepository
 }
 
-func (s *ServiceImpl) SubmitLink(url string) *Link {
-	// required checks here
-	// s.linkRepo.InsertLink(somethinghere)
-	fmt.Println("submitted", url)
-	return nil
+func (s *ServiceImpl) CreateOrUpdateUser(u User) error {
+	return s.userRepo.CreateOrUpdateUser(u)
 }
 
-func (s *ServiceImpl) Vote(linkID uint64, scrore uint64) uint64 {
-	return 0
+func (s *ServiceImpl) SubmitLink(url, userid, dedicatedTo string) (*Link, error) {
+	// required checks here
+	link := Link{
+		URL:         url,
+		SubmittedBy: userid,
+		DedicatedTo: dedicatedTo,
+		TotalVotes:  0,
+		IsExpired:   false,
+		CreatedAt:   time.Now().Unix(),
+	}
+	if err := FillYoutubeLinkMeta(&link); err != nil {
+		return nil, err
+	}
+	link.LinkID = s.linkRepo.InsertLink(link)
+	return &link, nil
+}
+
+func (s *ServiceImpl) GetAllLinks() []Link {
+	return s.linkRepo.GetAllLinks()
+}
+
+func (s *ServiceImpl) Vote(linkID int64, userID string, score int64) {
+	s.voteRepo.MarkVote(linkID, userID, score)
 }
 
 func (s *ServiceImpl) Test(message string) {
