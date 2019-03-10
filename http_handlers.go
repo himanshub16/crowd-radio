@@ -8,36 +8,58 @@ import (
 	"github.com/labstack/echo/middleware"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 var (
 	jwtSecret = []byte("secret")
 	service   Service
+	radio     *Radio
 )
 
-func NewHTTPRouter(_service Service) *echo.Echo {
+func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 	service = _service
+	radio = _radio
 
 	router := echo.New()
 	router.GET("/health", healthCheckHandler)
 	router.POST("/login", loginHandler)
 
-	links := router.Group("/link")
-	links.Use(middleware.JWT(jwtSecret))
+	linkGroup := router.Group("/link")
+	linkGroup.Use(middleware.JWT(jwtSecret))
 	{
-		links.POST("/new", newLinkHandler)
-		links.POST("/upvote", upvoteLinkHandler)
-		links.POST("/downvote", downvoteLinkHandler)
+		linkGroup.GET("/:id", linkByIdHandler)
+		linkGroup.GET("/by_me", linksByMeHandler)
+		linkGroup.POST("/new", newLinkHandler)
+		linkGroup.POST("/upvote", upvoteLinkHandler)
+		linkGroup.POST("/downvote", downvoteLinkHandler)
 	}
 
-	radio := router.Group("/radio")
-	radio.Use(middleware.JWT(jwtSecret))
+	radioGroup := router.Group("/radio")
+	radioGroup.Use(middleware.JWT(jwtSecret))
 	{
-		radio.POST("/now_playing", healthCheckHandler)
+		radioGroup.GET("/now_playing", radioGetNowPlayingHandler)
+		radioGroup.GET("/queue", radioGetQueueHandler)
 	}
 
 	return router
+}
+
+func linkByIdHandler(c echo.Context) error {
+	lid, _ := strconv.Atoi(c.Param("id"))
+	l, _ := service.GetLinkByID(int64(lid))
+	return c.JSON(http.StatusOK, l)
+}
+
+func linksByMeHandler(c echo.Context) error {
+	userID := getUserIDFromContext(c)
+	links := service.GetLinksByUser(userID)
+	votes := service.GetVotesForUser(links, userID)
+	return c.JSON(http.StatusOK, echo.Map{
+		"links": links,
+		"votes": votes,
+	})
 }
 
 func loginHandler(c echo.Context) error {
@@ -122,4 +144,42 @@ func healthCheckHandler(c echo.Context) error {
 
 func getUserIDFromContext(c echo.Context) string {
 	return c.Get("user").(*jwt.Token).Claims.(jwt.MapClaims)["user_id"].(string)
+}
+
+func radioGetNowPlayingHandler(c echo.Context) error {
+	if radio.nowPlaying == nil {
+		return c.JSON(http.StatusOK, echo.Map{
+			"state":       "idle",
+			"link":        nil,
+			"player_time": 0,
+		})
+	}
+
+	userID := getUserIDFromContext(c)
+	links := []Link{*radio.nowPlaying}
+	votes := service.GetVotesForUser(links, userID)
+
+	var myVote int64
+	if len(votes) == 0 {
+		myVote = 0
+	} else {
+		myVote = votes[radio.nowPlaying.LinkID]
+	}
+
+	return c.JSON(http.StatusOK, echo.Map{
+		"state":       "running",
+		"link":        radio.nowPlaying,
+		"my_vote":     myVote,
+		"player_time": radio.playerCurTimeSec,
+	})
+}
+
+func radioGetQueueHandler(c echo.Context) error {
+	links := radio.queue
+	userID := getUserIDFromContext(c)
+	votes := service.GetVotesForUser(links, userID)
+	return c.JSON(http.StatusOK, echo.Map{
+		"links": links,
+		"votes": votes,
+	})
 }

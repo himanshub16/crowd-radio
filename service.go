@@ -11,6 +11,9 @@ type Service interface {
 	Vote(linkID int64, userID string, score int64)
 	Test(message string)
 	GetAllLinks() []Link
+	GetLinkByID(linkID int64) (*Link, error)
+	GetLinksByUser(userID string) []Link
+	GetVotesForUser(links []Link, userID string) map[int64]int64
 	close()
 }
 
@@ -19,6 +22,10 @@ type ServiceImpl struct {
 	userRepo UserRepository
 	voteRepo VoteRepository
 	testRepo TestRepository
+}
+
+func (s *ServiceImpl) GetLinkByID(linkID int64) (*Link, error) {
+	return s.linkRepo.GetLinkByID(linkID)
 }
 
 func (s *ServiceImpl) CreateOrUpdateUser(u User) error {
@@ -31,7 +38,6 @@ func (s *ServiceImpl) SubmitLink(url, userid, dedicatedTo string) (*Link, error)
 		URL:         url,
 		SubmittedBy: userid,
 		DedicatedTo: dedicatedTo,
-		TotalVotes:  0,
 		IsExpired:   false,
 		CreatedAt:   time.Now().Unix(),
 	}
@@ -46,8 +52,20 @@ func (s *ServiceImpl) GetAllLinks() []Link {
 	return s.linkRepo.GetAllLinks()
 }
 
+func (s *ServiceImpl) GetLinksByUser(userID string) []Link {
+	return s.linkRepo.GetLinksByUser(userID)
+}
+
 func (s *ServiceImpl) Vote(linkID int64, userID string, score int64) {
 	s.voteRepo.MarkVote(linkID, userID, score)
+}
+
+func (s *ServiceImpl) GetVotesForUser(links []Link, userID string) map[int64]int64 {
+	linkIDs := make([]int64, len(links))
+	for i, l := range links {
+		linkIDs[i] = l.LinkID
+	}
+	return s.linkRepo.GetVotesForUser(linkIDs, userID)
 }
 
 func (s *ServiceImpl) Test(message string) {

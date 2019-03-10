@@ -4,6 +4,7 @@ package main
 type Link struct {
 	LinkID      int64  `json:"link_id"`
 	URL         string `json:"url"`
+	VideoID     string `json:"video_id"`
 	Title       string `json:"title"`
 	ChannelName string `json:"channel_name"`
 	Duration    int64  `json:"duration"`

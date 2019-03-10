@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"sync"
 )
 
 func main() {
@@ -11,8 +11,9 @@ func main() {
 		linkRepo LinkRepository
 		voteRepo VoteRepository
 		testRepo TestRepository
-		radio    Radio
+		radio    *Radio
 		service  *ServiceImpl
+		wg       sync.WaitGroup
 	)
 
 	// just sqlite3 for now
@@ -30,9 +31,15 @@ func main() {
 	}
 	defer service.close()
 
-	radio = Radio{}
-	fmt.Println(radio)
+	radio = NewRadio(service)
+	wg.Add(1)
+	go radio.Start()
+	defer func() {
+		radio.Shutdown()
+		wg.Add(-1)
+	}()
 
-	echoRouter := NewHTTPRouter(service)
+	echoRouter := NewHTTPRouter(service, radio)
 	echoRouter.Start(":3000")
+	wg.Wait()
 }

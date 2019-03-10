@@ -8,14 +8,17 @@ type UserRepository interface {
 
 type LinkRepository interface {
 	InsertLink(link Link) int64
-	GetLinkById(id uint64) (*Link, error)
+	GetLinkByID(id int64) (*Link, error)
 	GetAllLinks() []Link
+	GetLinksByUser(userID string) []Link
 	UpdateLink(link Link) error
+	GetVotesForUser(linkIDs []int64, userID string) map[int64]int64
+	TotalVotesForLink(linkID int64) int64
 	close()
 }
 
 type VoteRepository interface {
-	MarkVote(linkID int64, userID string, score int64)
+	MarkVote(linkID int64, userID string, score int64) error
 	close()
 }
 
