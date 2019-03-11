@@ -22,7 +22,12 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 	service = _service
 	radio = _radio
 
-	router := echo.New()
+	r := echo.New()
+	r.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "method=${method}, uri=${uri}, status=${status}\n",
+	}))
+	// router := echo.New()
+	router := r.Group("/api")
 	router.GET("/health", healthCheckHandler)
 	router.POST("/login", loginHandler)
 
@@ -43,7 +48,8 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 		radioGroup.GET("/queue", radioGetQueueHandler)
 	}
 
-	return router
+	// return router
+	return r
 }
 
 func linkByIdHandler(c echo.Context) error {
@@ -166,9 +172,15 @@ func radioGetNowPlayingHandler(c echo.Context) error {
 		myVote = votes[radio.nowPlaying.LinkID]
 	}
 
+	user := service.GetUserByID(radio.nowPlaying.SubmittedBy)
+
 	return c.JSON(http.StatusOK, echo.Map{
-		"state":       "running",
-		"link":        radio.nowPlaying,
+		"state": "running",
+		"link":  radio.nowPlaying,
+		"submitted_by": echo.Map{
+			"firstname": user.FirstName,
+			"lastname":  user.LastName,
+		},
 		"my_vote":     myVote,
 		"player_time": radio.playerCurTimeSec,
 	})
