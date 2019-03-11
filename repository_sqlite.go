@@ -74,23 +74,23 @@ func (r *SQLiteRepository) InsertLink(link Link) int64 {
 
 func (r *SQLiteRepository) GetLinkByID(id int64) (*Link, error) {
 	stmt, err := r.db.Prepare(`
-	  select url, video_id title, channel_name, duration, submitted_by,
-	  dedicated_to, is_expired, created_at
-	  from links
-	  where link_id=?
+	  select l.link_id, l.video_id, l.url, l.title, l.channel_name, l.duration,
+		l.submitted_by, l.dedicated_to, l.is_expired, l.created_at,
+		(select coalesce(sum(score), 0) from votes as v where v.link_id = l.link_id)
+	  from links as l
+      where l.link_id=?
 	`)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer stmt.Close()
 
-	link := Link{LinkID: id}
-	err = stmt.QueryRow(link.LinkID).Scan(&link.URL, &link.VideoID, &link.Title,
-		&link.ChannelName, &link.Duration, &link.SubmittedBy, &link.DedicatedTo,
-		&link.IsExpired, &link.CreatedAt)
+	l := Link{LinkID: id}
+	err = stmt.QueryRow(l.LinkID).Scan(&l.LinkID, &l.VideoID, &l.URL, &l.Title, &l.ChannelName,
+		&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt,
+		&l.TotalVotes)
 
-	link.TotalVotes = r.TotalVotesForLink(id)
-	return &link, err
+	return &l, err
 }
 
 func (r *SQLiteRepository) GetLinksByUser(userID string) []Link {
@@ -191,7 +191,7 @@ func (r *SQLiteRepository) GetVotesForUser(linkIds []int64, userID string) map[i
 			strings.Repeat(",?", len(linkIds)-1) +
 			")"
 	} else {
-		query = "select link_id, score from votes where user_id=? and link_id in (?)"
+		return make(map[int64]int64)
 	}
 	stmt, err := r.db.Prepare(query)
 	if err != nil {
@@ -237,22 +237,39 @@ func (r *SQLiteRepository) MarkVote(linkID int64, userID string, score int64) er
 	return nil
 }
 
-func (r *SQLiteRepository) TotalVotesForLink(linkID int64) int64 {
-	stmt, err := r.db.Prepare(`
-	  select count(*) from votes where link_id=?
-	`)
+func (r *SQLiteRepository) TotalVoteForLinks(linkIDs []int64) map[int64]int64 {
+	var query string
+	if len(linkIDs) > 0 {
+		query = "select link_id, sum(score) from votes where link_id in (?" +
+			strings.Repeat(",?", len(linkIDs)-1) +
+			") group by link_id"
+	} else {
+		return make(map[int64]int64)
+	}
+	stmt, err := r.db.Prepare(query)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer stmt.Close()
 
-	var count int64
-	err = stmt.QueryRow(linkID).Scan(&count)
+	args := make([]interface{}, 0)
+	for _, lid := range linkIDs {
+		var tmp interface{}
+		tmp = lid
+		args = append(args, tmp)
+	}
+
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return count
+	result := make(map[int64]int64)
+	for rows.Next() {
+		var linkid, score int64
+		rows.Scan(&linkid, &score)
+		result[linkid] = score
+	}
+	return result
 }
 
 func (r *SQLiteRepository) NewTest(message string) error {

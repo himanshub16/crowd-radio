@@ -8,6 +8,7 @@ import (
 type Service interface {
 	CreateOrUpdateUser(u User) error
 	SubmitLink(url, userid, dedicatedTo string) (*Link, error)
+	UpdateLink(link Link) error
 	Vote(linkID int64, userID string, score int64)
 	Test(message string)
 	GetAllLinks(limit int64) []Link
@@ -15,6 +16,7 @@ type Service interface {
 	GetLinksByUser(userID string) []Link
 	GetVotesForUser(links []Link, userID string) map[int64]int64
 	GetUserByID(userID string) *User
+	GetTotalVoteForLinks(linkIDs []int64) map[int64]int64
 	close()
 }
 
@@ -35,6 +37,10 @@ func (s *ServiceImpl) GetUserByID(userID string) *User {
 
 func (s *ServiceImpl) CreateOrUpdateUser(u User) error {
 	return s.userRepo.CreateOrUpdateUser(u)
+}
+
+func (s *ServiceImpl) UpdateLink(link Link) error {
+	return s.linkRepo.UpdateLink(link)
 }
 
 func (s *ServiceImpl) SubmitLink(url, userid, dedicatedTo string) (*Link, error) {
@@ -71,6 +77,10 @@ func (s *ServiceImpl) GetVotesForUser(links []Link, userID string) map[int64]int
 		linkIDs[i] = l.LinkID
 	}
 	return s.linkRepo.GetVotesForUser(linkIDs, userID)
+}
+
+func (s *ServiceImpl) GetTotalVoteForLinks(linkIDs []int64) map[int64]int64 {
+	return s.voteRepo.TotalVoteForLinks(linkIDs)
 }
 
 func (s *ServiceImpl) Test(message string) {

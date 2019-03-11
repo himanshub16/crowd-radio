@@ -13,12 +13,12 @@ type LinkRepository interface {
 	GetLinksByUser(userID string) []Link
 	UpdateLink(link Link) error
 	GetVotesForUser(linkIDs []int64, userID string) map[int64]int64
-	TotalVotesForLink(linkID int64) int64
 	close()
 }
 
 type VoteRepository interface {
 	MarkVote(linkID int64, userID string, score int64) error
+	TotalVoteForLinks(linkIDs []int64) map[int64]int64
 	close()
 }
 

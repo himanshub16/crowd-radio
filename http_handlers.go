@@ -161,6 +161,21 @@ func radioGetNowPlayingHandler(c echo.Context) error {
 	links := []Link{*radio.nowPlaying}
 	votes := service.GetVotesForUser(links, userID)
 
+	linkIDs := make([]int64, len(links))
+	for i, l := range links {
+		linkIDs[i] = l.LinkID
+	}
+
+	totalVotes := service.GetTotalVoteForLinks(linkIDs)
+
+	for i, l := range links {
+		if score, ok := totalVotes[l.LinkID]; ok {
+			links[i].TotalVotes = score
+		} else {
+			links[i].TotalVotes = 0
+		}
+	}
+
 	var myVote int64
 	if len(votes) == 0 {
 		myVote = 0
@@ -186,6 +201,15 @@ func radioGetQueueHandler(c echo.Context) error {
 	links := radio.queue
 	userID := getUserIDFromContext(c)
 	votes := service.GetVotesForUser(links, userID)
+
+	for i, l := range links {
+		if vote, ok := votes[l.LinkID]; ok {
+			links[i].MyVote = vote
+		} else {
+			links[i].MyVote = 0
+		}
+	}
+
 	return c.JSON(http.StatusOK, echo.Map{
 		"links": links,
 		"votes": votes,
