@@ -147,9 +147,10 @@ func (r *SQLiteRepository) UpdateLink(link Link) error {
 
 func (r *SQLiteRepository) GetAllLinks() []Link {
 	stmt, err := r.db.Prepare(`
-	  select link_id, video_id, url, title, channel_name, duration,
-	  submitted_by, dedicated_to, is_expired, created_at
-	  from links
+	  select l.link_id, l.video_id, l.url, l.title, l.channel_name, l.duration,
+		l.submitted_by, l.dedicated_to, l.is_expired, l.created_at,
+		(select coalesce(sum(score), 0) from votes as v where v.link_id = l.link_id)
+	  from links as l
       where is_expired=false
 	`)
 	if err != nil {
@@ -166,7 +167,9 @@ func (r *SQLiteRepository) GetAllLinks() []Link {
 	for rows.Next() {
 		l := Link{}
 		err = rows.Scan(&l.LinkID, &l.VideoID, &l.URL, &l.Title, &l.ChannelName,
-			&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt)
+			&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt,
+			&l.TotalVotes,
+		)
 		if err != nil {
 			log.Fatal(err)
 		}
