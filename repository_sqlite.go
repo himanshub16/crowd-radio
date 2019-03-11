@@ -3,9 +3,10 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"strings"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type SQLiteRepository struct {
@@ -94,10 +95,12 @@ func (r *SQLiteRepository) GetLinkByID(id int64) (*Link, error) {
 
 func (r *SQLiteRepository) GetLinksByUser(userID string) []Link {
 	stmt, err := r.db.Prepare(`
-	  select link_id, url, title, channel_name, duration, submitted_by,
-	  dedicated_to, is_expired, created_at
-	  from links
-      where is_expired=false and submitted_by=?
+	  select l.link_id, l.video_id, l.url, l.title, l.channel_name, l.duration,
+		l.submitted_by, l.dedicated_to, l.is_expired, l.created_at,
+		(select coalesce(sum(score), 0) from votes as v1 where v1.link_id = l.link_id),
+		(select coalesce(sum(score), 0) from votes as v2 where v2.link_id = l.link_id and v2.user_id = l.submitted_by)
+	  from links as l
+      where l.is_expired=false and l.submitted_by=?
 	`)
 	if err != nil {
 		log.Fatal(err)
@@ -112,8 +115,9 @@ func (r *SQLiteRepository) GetLinksByUser(userID string) []Link {
 	links := make([]Link, 0)
 	for rows.Next() {
 		l := Link{}
-		err = rows.Scan(&l.LinkID, &l.URL, &l.Title, &l.ChannelName,
-			&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt)
+		err = rows.Scan(&l.LinkID, &l.VideoID, &l.URL, &l.Title, &l.ChannelName,
+			&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt,
+			&l.TotalVotes, &l.MyVote)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -145,21 +149,23 @@ func (r *SQLiteRepository) UpdateLink(link Link) error {
 	return nil
 }
 
-func (r *SQLiteRepository) GetAllLinks() []Link {
+func (r *SQLiteRepository) GetAllLinks(limit int64) []Link {
 	stmt, err := r.db.Prepare(`
 	  select l.link_id, l.video_id, l.url, l.title, l.channel_name, l.duration,
 		l.submitted_by, l.dedicated_to, l.is_expired, l.created_at,
 		(select coalesce(sum(score), 0) from votes as v where v.link_id = l.link_id)
 	  from links as l
-      where is_expired=false
+      where l.is_expired=false
+      limit ?
 	`)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query()
+	rows, err := stmt.Query(limit)
 	if err != nil {
+		log.Println("links by user failed here")
 		log.Fatal(err)
 	}
 
@@ -168,8 +174,7 @@ func (r *SQLiteRepository) GetAllLinks() []Link {
 		l := Link{}
 		err = rows.Scan(&l.LinkID, &l.VideoID, &l.URL, &l.Title, &l.ChannelName,
 			&l.Duration, &l.SubmittedBy, &l.DedicatedTo, &l.IsExpired, &l.CreatedAt,
-			&l.TotalVotes,
-		)
+			&l.TotalVotes)
 		if err != nil {
 			log.Fatal(err)
 		}

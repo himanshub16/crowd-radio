@@ -11,6 +11,7 @@ type Link struct {
 	SubmittedBy string `json:"submitted_by"`
 	DedicatedTo string `json:"dedicated_to"`
 	TotalVotes  int64  `json:"total_votes"`
+	MyVote int64 `json:"my_vote"`
 	IsExpired   bool   `json:"is_expired"`
 	CreatedAt   int64  `json:"created_at"`
 }

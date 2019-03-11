@@ -10,7 +10,7 @@ type Service interface {
 	SubmitLink(url, userid, dedicatedTo string) (*Link, error)
 	Vote(linkID int64, userID string, score int64)
 	Test(message string)
-	GetAllLinks() []Link
+	GetAllLinks(limit int64) []Link
 	GetLinkByID(linkID int64) (*Link, error)
 	GetLinksByUser(userID string) []Link
 	GetVotesForUser(links []Link, userID string) map[int64]int64
@@ -53,8 +53,8 @@ func (s *ServiceImpl) SubmitLink(url, userid, dedicatedTo string) (*Link, error)
 	return &link, nil
 }
 
-func (s *ServiceImpl) GetAllLinks() []Link {
-	return s.linkRepo.GetAllLinks()
+func (s *ServiceImpl) GetAllLinks(limit int64) []Link {
+	return s.linkRepo.GetAllLinks(limit)
 }
 
 func (s *ServiceImpl) GetLinksByUser(userID string) []Link {

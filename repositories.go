@@ -9,7 +9,7 @@ type UserRepository interface {
 type LinkRepository interface {
 	InsertLink(link Link) int64
 	GetLinkByID(id int64) (*Link, error)
-	GetAllLinks() []Link
+	GetAllLinks(limit int64) []Link
 	GetLinksByUser(userID string) []Link
 	UpdateLink(link Link) error
 	GetVotesForUser(linkIDs []int64, userID string) map[int64]int64

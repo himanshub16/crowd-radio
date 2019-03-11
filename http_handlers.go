@@ -61,11 +61,7 @@ func linkByIdHandler(c echo.Context) error {
 func linksByMeHandler(c echo.Context) error {
 	userID := getUserIDFromContext(c)
 	links := service.GetLinksByUser(userID)
-	votes := service.GetVotesForUser(links, userID)
-	return c.JSON(http.StatusOK, echo.Map{
-		"links": links,
-		"votes": votes,
-	})
+	return c.JSON(http.StatusOK, links)
 }
 
 func loginHandler(c echo.Context) error {

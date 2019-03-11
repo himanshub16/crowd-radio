@@ -15,13 +15,13 @@ type Radio struct {
 	tickResSec         time.Duration
 	queueRefreshDur    time.Duration
 	nextQueueRefreshAt time.Time
+	queueCapacity      int64
 }
 
 var _service Service
 
 func NewRadio(__service Service) *Radio {
 	_service = __service
-	fmt.Println(_service.GetAllLinks())
 	return &Radio{
 		nowPlaying:         nil,
 		playerCurTimeSec:   0,
@@ -29,6 +29,7 @@ func NewRadio(__service Service) *Radio {
 		queue:              make([]Link, 0),
 		tickResSec:         1,
 		queueRefreshDur:    time.Minute * 1,
+		queueCapacity:      5,
 	}
 }
 
@@ -68,7 +69,7 @@ func (r *Radio) Start() {
 }
 
 func (r *Radio) refreshQueue() int {
-	r.queue = _service.GetAllLinks()
+	r.queue = _service.GetAllLinks(-1)
 	r.nextQueueRefreshAt = time.Now().Add(r.queueRefreshDur)
 	return len(r.queue)
 }
