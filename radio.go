@@ -35,7 +35,8 @@ func NewRadio(__service Service) *Radio {
 func (r *Radio) Engine() {
 	go func() {
 		for t := range r.ticker.C {
-			if len(r.queue) == 0 {
+			if len(r.queue) == 0 ||
+				t.After(r.nextQueueRefreshAt) {
 				gotSome := r.refreshQueue()
 				if gotSome == 0 {
 					fmt.Println("There are no links available.")
@@ -68,6 +69,7 @@ func (r *Radio) Start() {
 
 func (r *Radio) refreshQueue() int {
 	r.queue = _service.GetAllLinks()
+	r.nextQueueRefreshAt = time.Now().Add(r.queueRefreshDur)
 	return len(r.queue)
 }
 
