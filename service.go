@@ -14,6 +14,7 @@ type Service interface {
 	GetLinkByID(linkID int64) (*Link, error)
 	GetLinksByUser(userID string) []Link
 	GetVotesForUser(links []Link, userID string) map[int64]int64
+	GetUserByID(userID string) *User
 	close()
 }
 
@@ -26,6 +27,10 @@ type ServiceImpl struct {
 
 func (s *ServiceImpl) GetLinkByID(linkID int64) (*Link, error) {
 	return s.linkRepo.GetLinkByID(linkID)
+}
+
+func (s *ServiceImpl) GetUserByID(userID string) *User {
+	return s.userRepo.GetUserByID(userID)
 }
 
 func (s *ServiceImpl) CreateOrUpdateUser(u User) error {
