@@ -300,7 +300,7 @@ func NewSQLiteRepository(filePath string) *SQLiteRepository {
 	  )`
 	usersTable := `
 	  create table if not exists users (
-		user_id int primary key,
+		user_id text primary key,
 		firstname text,
 		lastname text,
 		email text
@@ -314,7 +314,7 @@ func NewSQLiteRepository(filePath string) *SQLiteRepository {
 		title text,
 		channel_name text,
 		duration int,
-		submitted_by int,
+		submitted_by text,
 		dedicated_to text,
 		is_expired bool,
 		created_at int
@@ -322,7 +322,7 @@ func NewSQLiteRepository(filePath string) *SQLiteRepository {
 	votesTable := `
 		create table if not exists votes (
 		link_id integer not null,
-		user_id integer not null,
+		user_id text not null,
 		score integer not null,
 		constraint unq UNIQUE(link_id, user_id)
 	  )`

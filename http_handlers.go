@@ -69,6 +69,8 @@ func loginHandler(c echo.Context) error {
 	if err := c.Bind(&u); err != nil {
 		return err
 	}
+	// I shouldn't be doing this
+	u.UserID = c.FormValue("user_id")
 	service.CreateOrUpdateUser(u)
 
 	token := jwt.New(jwt.SigningMethodHS256)
