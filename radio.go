@@ -29,7 +29,7 @@ func NewRadio(__service Service) *Radio {
 		playerStartTimeSec: 0,
 		queue:              make([]Link, 0),
 		tickResSec:         1,
-		queueRefreshDur:    time.Minute * 1,
+		queueRefreshDur:    time.Second * 2,
 		queueCapacity:      5,
 	}
 }
@@ -37,7 +37,7 @@ func NewRadio(__service Service) *Radio {
 func (r *Radio) Engine() {
 	go func() {
 		for t := range r.ticker.C {
-			if len(r.queue) < int(r.queueCapacity) ||
+			if len(r.queue) == 0 ||
 				t.After(r.nextQueueRefreshAt) {
 				gotSome := r.refreshQueue()
 				if gotSome == 0 {
