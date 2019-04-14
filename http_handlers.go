@@ -3,6 +3,8 @@ package main
 // this file contains implementation of HTTP handlers - REST API
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -13,6 +15,7 @@ import (
 )
 
 var (
+	// TODO move this secret to environment
 	jwtSecret = []byte("secret")
 	service   Service
 	radio     *Radio
@@ -28,8 +31,10 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 	}))
 	// router := echo.New()
 	router := r.Group("/api")
+	router.File("/test_subscribe", "index.html")
 	router.GET("/health", healthCheckHandler)
 	router.POST("/login", loginHandler)
+	router.GET("/subscribe", subscribeToUpdatesHandler)
 
 	linkGroup := router.Group("/link")
 	linkGroup.Use(middleware.JWT(jwtSecret))
@@ -50,6 +55,48 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 
 	// return router
 	return r
+}
+
+func subscribeToUpdatesHandler(c echo.Context) error {
+	var w http.ResponseWriter = c.Response().Writer
+	f, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+	}
+
+	id, radioStateChan := radio.RegisterHook()
+	defer radio.DeregisterHook(id)
+	log.Println("client connected with id", id)
+
+	notifyCloseChan := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notifyCloseChan
+		radio.DeregisterHook(id)
+		log.Println("HTTP connection closed")
+	}()
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+
+	for {
+		state, open := <-radioStateChan
+		if !open {
+			break
+		}
+		msg, err := json.Marshal(state)
+		if err != nil {
+			log.Panicln("Error while marshalling", err)
+		}
+		msgstr := string(msg)
+		fmt.Fprint(w, "data: message", msgstr, "\r\n")
+		f.Flush()
+	}
+
+	log.Println("Finished HTTP request for", id)
+
+	return nil
 }
 
 func linkByIdHandler(c echo.Context) error {
@@ -150,6 +197,7 @@ func getUserIDFromContext(c echo.Context) string {
 	return c.Get("user").(*jwt.Token).Claims.(jwt.MapClaims)["user_id"].(string)
 }
 
+// TODO implement this using SSE
 func radioGetNowPlayingHandler(c echo.Context) error {
 	if radio.nowPlaying == nil {
 		return c.JSON(http.StatusOK, echo.Map{
@@ -199,6 +247,7 @@ func radioGetNowPlayingHandler(c echo.Context) error {
 	})
 }
 
+// TODO implement this using SSE
 func radioGetQueueHandler(c echo.Context) error {
 	links := radio.queue
 	userID := getUserIDFromContext(c)

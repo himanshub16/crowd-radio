@@ -3,20 +3,30 @@ package main
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"sort"
+	"sync"
 	"time"
 )
 
 type Radio struct {
-	queue              []Link
-	nowPlaying         *Link
-	playerStartTimeSec uint64
-	playerCurTimeSec   uint64
-	ticker             *time.Ticker
-	tickResSec         time.Duration
-	queueRefreshDur    time.Duration
-	nextQueueRefreshAt time.Time
-	queueCapacity      int64
+	queue               []Link
+	nowPlaying          *Link
+	playerStartTimeSec  uint64
+	playerCurTimeSec    uint64
+	ticker              *time.Ticker
+	tickResSec          time.Duration
+	queueRefreshDur     time.Duration
+	nextQueueRefreshAt  time.Time
+	queueCapacity       int64
+	connectedHooks      map[uuid.UUID](chan RadioState)
+	connectedHooksMutex *sync.Mutex
+	curState            RadioState
+}
+
+type RadioState struct {
+	PlayerCurTimeSec uint64 `json:"player_cur_time_sec"`
+	Queue            []Link `json:"queue"`
 }
 
 var _service Service
@@ -24,13 +34,15 @@ var _service Service
 func NewRadio(__service Service) *Radio {
 	_service = __service
 	return &Radio{
-		nowPlaying:         nil,
-		playerCurTimeSec:   0,
-		playerStartTimeSec: 0,
-		queue:              make([]Link, 0),
-		tickResSec:         1,
-		queueRefreshDur:    time.Second * 2,
-		queueCapacity:      5,
+		nowPlaying:          nil,
+		playerCurTimeSec:    0,
+		playerStartTimeSec:  0,
+		queue:               make([]Link, 0),
+		tickResSec:          1,
+		queueRefreshDur:     time.Second * 2,
+		queueCapacity:       5,
+		connectedHooks:      make(map[uuid.UUID](chan RadioState)),
+		connectedHooksMutex: &sync.Mutex{},
 	}
 }
 
@@ -61,6 +73,9 @@ func (r *Radio) Engine() {
 			r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
 
 			r.ReorderQueue()
+			r.curState.PlayerCurTimeSec = r.playerCurTimeSec
+			r.curState.Queue = r.queue
+			r.broadcastUpdate()
 
 			fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
 		}
@@ -110,4 +125,25 @@ func (r *Radio) ReorderQueue() {
 func (r *Radio) Shutdown() {
 	// close and perform cleanup if required
 	r.ticker.Stop()
+}
+
+func (r *Radio) broadcastUpdate() {
+	for id := range r.connectedHooks {
+		r.connectedHooks[id] <- r.curState
+	}
+}
+
+func (r *Radio) RegisterHook() (uuid.UUID, chan RadioState) {
+	c := make(chan RadioState)
+	r.connectedHooksMutex.Lock()
+	id := uuid.New()
+	r.connectedHooks[id] = c
+	r.connectedHooksMutex.Unlock()
+	return id, c
+}
+
+func (r *Radio) DeregisterHook(id uuid.UUID) {
+	r.connectedHooksMutex.Lock()
+	delete(r.connectedHooks, id)
+	r.connectedHooksMutex.Unlock()
 }
