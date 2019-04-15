@@ -110,6 +110,13 @@ func (r *Radio) Engine() {
 				r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
 				r.broadcastUpdate(playerTimeHook)
 				fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
+
+				if r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
+					r.nowPlaying = nil
+				}
+			} else {
+				r.playerCurTimeSec = 1 << 30
+				r.broadcastUpdate(playerTimeHook)
 			}
 		}
 		fmt.Println("engine stopped")
