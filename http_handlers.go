@@ -58,20 +58,29 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 }
 
 func subscribeToUpdatesHandler(c echo.Context) error {
+	var hookType HookType = HookType(c.QueryParam("hooktype"))
+	if len(hookType) == 0 {
+		return c.String(http.StatusBadRequest, "Missing hookType param")
+	}
+
+	if !IsValidHookType(hookType) {
+		return c.String(http.StatusBadRequest, "Invalid hook type")
+	}
+
 	var w http.ResponseWriter = c.Response().Writer
 	f, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 	}
 
-	id, radioStateChan := radio.RegisterHook()
-	defer radio.DeregisterHook(id)
-	log.Println("client connected with id", id)
+	id, hookChan := radio.RegisterHook(hookType)
+	defer radio.DeregisterHook(hookType, id)
+	log.Println("client connected with id", id, "for", hookType)
 
 	notifyCloseChan := w.(http.CloseNotifier).CloseNotify()
 	go func() {
 		<-notifyCloseChan
-		radio.DeregisterHook(id)
+		radio.DeregisterHook(hookType, id)
 		log.Println("HTTP connection closed")
 	}()
 
@@ -81,7 +90,7 @@ func subscribeToUpdatesHandler(c echo.Context) error {
 	w.Header().Set("Transfer-Encoding", "chunked")
 
 	for {
-		state, open := <-radioStateChan
+		state, open := <-hookChan
 		if !open {
 			break
 		}
@@ -90,7 +99,8 @@ func subscribeToUpdatesHandler(c echo.Context) error {
 			log.Panicln("Error while marshalling", err)
 		}
 		msgstr := string(msg)
-		fmt.Fprint(w, "data: message", msgstr, "\r\n")
+		// data: is required and \n\n as well
+		fmt.Fprint(w, "data: ", msgstr, "\n\n")
 		f.Flush()
 	}
 

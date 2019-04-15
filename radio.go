@@ -10,39 +10,68 @@ import (
 )
 
 type Radio struct {
-	queue               []Link
-	nowPlaying          *Link
-	playerStartTimeSec  uint64
-	playerCurTimeSec    uint64
-	ticker              *time.Ticker
-	tickResSec          time.Duration
-	queueRefreshDur     time.Duration
-	nextQueueRefreshAt  time.Time
-	queueCapacity       int64
-	connectedHooks      map[uuid.UUID](chan RadioState)
-	connectedHooksMutex *sync.Mutex
-	curState            RadioState
+	queue                []Link
+	nowPlaying           *Link
+	playerStartTimeSec   uint64
+	playerCurTimeSec     uint64
+	ticker               *time.Ticker
+	tickResSec           time.Duration
+	queueRefreshDur      time.Duration
+	nextQueueRefreshAt   time.Time
+	queueCapacity        int64
+	nowPlayingHooks      map[uuid.UUID](chan interface{})
+	nowPlayingHooksMutex *sync.Mutex
+	playerTimeHooks      map[uuid.UUID](chan interface{})
+	playerTimeHooksMutex *sync.Mutex
+	queueHooks           map[uuid.UUID](chan interface{})
+	queueHooksMutex      *sync.Mutex
 }
 
-type RadioState struct {
-	PlayerCurTimeSec uint64 `json:"player_cur_time_sec"`
-	Queue            []Link `json:"queue"`
+type HookType string
+
+const (
+	nowPlayingHook HookType = "nowPlaying"
+	playerTimeHook HookType = "playerTime"
+	queueHook      HookType = "queue"
+)
+
+func IsValidHookType(htype HookType) bool {
+	switch htype {
+	case nowPlayingHook:
+		return true
+	case playerTimeHook:
+		return true
+	case queueHook:
+		return true
+	default:
+		return false
+	}
 }
+
+// type RadioState struct {
+// 	NowPlaying       Link   `json:"now_playing"`
+// 	PlayerCurTimeSec uint64 `json:"player_cur_time_sec"`
+// 	Queue            []Link `json:"queue"`
+// }
 
 var _service Service
 
 func NewRadio(__service Service) *Radio {
 	_service = __service
 	return &Radio{
-		nowPlaying:          nil,
-		playerCurTimeSec:    0,
-		playerStartTimeSec:  0,
-		queue:               make([]Link, 0),
-		tickResSec:          1,
-		queueRefreshDur:     time.Second * 2,
-		queueCapacity:       5,
-		connectedHooks:      make(map[uuid.UUID](chan RadioState)),
-		connectedHooksMutex: &sync.Mutex{},
+		nowPlaying:           nil,
+		playerCurTimeSec:     0,
+		playerStartTimeSec:   0,
+		queue:                make([]Link, 0),
+		tickResSec:           1,
+		queueRefreshDur:      time.Second * 2,
+		queueCapacity:        5,
+		nowPlayingHooks:      make(map[uuid.UUID](chan interface{})),
+		nowPlayingHooksMutex: &sync.Mutex{},
+		playerTimeHooks:      make(map[uuid.UUID](chan interface{})),
+		playerTimeHooksMutex: &sync.Mutex{},
+		queueHooks:           make(map[uuid.UUID](chan interface{})),
+		queueHooksMutex:      &sync.Mutex{},
 	}
 }
 
@@ -67,15 +96,19 @@ func (r *Radio) Engine() {
 				r.nowPlaying.IsExpired = true
 				_service.UpdateLink(*r.nowPlaying)
 
+				r.broadcastUpdate(nowPlayingHook)
 				fmt.Println("now playing changed to", r.nowPlaying.LinkID)
 
 			}
 			r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
+			r.broadcastUpdate(playerTimeHook)
 
 			r.ReorderQueue()
-			r.curState.PlayerCurTimeSec = r.playerCurTimeSec
-			r.curState.Queue = r.queue
-			r.broadcastUpdate()
+			r.broadcastUpdate(queueHook)
+			// r.curState.NowPlaying = *r.nowPlaying
+			// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
+			// r.curState.Queue = r.queue
+			// r.broadcastUpdate()
 
 			fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
 		}
@@ -125,25 +158,80 @@ func (r *Radio) ReorderQueue() {
 func (r *Radio) Shutdown() {
 	// close and perform cleanup if required
 	r.ticker.Stop()
-}
 
-func (r *Radio) broadcastUpdate() {
-	for id := range r.connectedHooks {
-		r.connectedHooks[id] <- r.curState
+	// clean and close all channels
+	for id := range r.nowPlayingHooks {
+		close(r.nowPlayingHooks[id])
+	}
+	for id := range r.queueHooks {
+		close(r.queueHooks[id])
+	}
+	for id := range r.playerTimeHooks {
+		close(r.playerTimeHooks[id])
 	}
 }
 
-func (r *Radio) RegisterHook() (uuid.UUID, chan RadioState) {
-	c := make(chan RadioState)
-	r.connectedHooksMutex.Lock()
+func (r *Radio) broadcastUpdate(htype HookType) {
+	switch htype {
+	case nowPlayingHook:
+		for id := range r.nowPlayingHooks {
+			// already a struct / can be marshalled to json
+			r.nowPlayingHooks[id] <- *r.nowPlaying
+		}
+	case queueHook:
+		for id := range r.queueHooks {
+			// already a struct / can be marshalled to json
+			r.queueHooks[id] <- r.queue
+		}
+	case playerTimeHook:
+		for id := range r.playerTimeHooks {
+			// already a struct / can be marshalled to json
+			r.playerTimeHooks[id] <- r.playerCurTimeSec
+		}
+	}
+}
+
+func (r *Radio) RegisterHook(htype HookType) (uuid.UUID, chan interface{}) {
 	id := uuid.New()
-	r.connectedHooks[id] = c
-	r.connectedHooksMutex.Unlock()
+	c := make(chan interface{})
+
+	switch htype {
+
+	case nowPlayingHook:
+		r.nowPlayingHooksMutex.Lock()
+		r.nowPlayingHooks[id] = c
+		defer r.nowPlayingHooksMutex.Unlock()
+
+	case queueHook:
+		r.queueHooksMutex.Lock()
+		r.queueHooks[id] = c
+		defer r.queueHooksMutex.Unlock()
+
+	case playerTimeHook:
+		r.playerTimeHooksMutex.Lock()
+		r.playerTimeHooks[id] = c
+		defer r.playerTimeHooksMutex.Unlock()
+	}
+
 	return id, c
 }
 
-func (r *Radio) DeregisterHook(id uuid.UUID) {
-	r.connectedHooksMutex.Lock()
-	delete(r.connectedHooks, id)
-	r.connectedHooksMutex.Unlock()
+func (r *Radio) DeregisterHook(htype HookType, id uuid.UUID) {
+	switch htype {
+
+	case nowPlayingHook:
+		r.nowPlayingHooksMutex.Lock()
+		delete(r.nowPlayingHooks, id)
+		defer r.nowPlayingHooksMutex.Unlock()
+
+	case queueHook:
+		r.queueHooksMutex.Lock()
+		delete(r.queueHooks, id)
+		defer r.queueHooksMutex.Unlock()
+
+	case playerTimeHook:
+		r.playerTimeHooksMutex.Lock()
+		delete(r.playerTimeHooks, id)
+		defer r.playerTimeHooksMutex.Unlock()
+	}
 }
