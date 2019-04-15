@@ -36,11 +36,14 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 	router.POST("/login", loginHandler)
 	router.GET("/subscribe", subscribeToUpdatesHandler)
 
+	// this is placed here because it uses cookies instead of JWT
+	router.GET("/link/by_me", linksByMeHandler)
+
 	linkGroup := router.Group("/link")
 	linkGroup.Use(middleware.JWT(jwtSecret))
 	{
 		linkGroup.GET("/:id", linkByIdHandler)
-		linkGroup.GET("/by_me", linksByMeHandler)
+		// linkGroup.GET("/by_me", linksByMeHandler)
 		linkGroup.POST("/new", newLinkHandler)
 		linkGroup.POST("/upvote", upvoteLinkHandler)
 		linkGroup.POST("/downvote", downvoteLinkHandler)
@@ -141,9 +144,51 @@ func linkByIdHandler(c echo.Context) error {
 }
 
 func linksByMeHandler(c echo.Context) error {
-	userID := getUserIDFromContext(c)
-	links := service.GetLinksByUser(userID)
-	return c.JSON(http.StatusOK, links)
+	// this one is ReST based
+	// userID := getUserIDFromContext(c)
+	// links := service.GetLinksByUser(userID)
+	// return c.JSON(http.StatusOK, links)
+
+	// this implementation uses SSE
+	cookie, err := c.Cookie("userid")
+	if err != nil {
+		return c.String(http.StatusUnauthorized, "Missing cookie userid")
+	}
+	userID := cookie.Value
+
+	var w http.ResponseWriter = c.Response().Writer
+	f, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+	}
+
+	log.Println("client connected with for linksbyme")
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+
+	ticker := time.NewTicker(time.Second * 2)
+	notifyCloseChan := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notifyCloseChan
+		ticker.Stop()
+		log.Println("HTTP connection closed for linksbyme")
+	}()
+
+	for range ticker.C {
+		links := service.GetLinksByUser(userID)
+		msg, err := json.Marshal(links)
+		if err != nil {
+			log.Panicln("Error while marshalling", err)
+		}
+		fmt.Fprint(w, "data: ", string(msg), "\n\n")
+		f.Flush()
+	}
+	log.Println("Finished HTTP request for my submissions")
+
+	return nil
 }
 
 func loginHandler(c echo.Context) error {
