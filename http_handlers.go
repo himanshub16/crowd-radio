@@ -58,6 +58,12 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 }
 
 func subscribeToUpdatesHandler(c echo.Context) error {
+	cookie, err := c.Cookie("userid")
+	if err != nil {
+		return c.String(http.StatusUnauthorized, "Missing cookie userid")
+	}
+	userID := cookie.Value
+
 	var hookType HookType = HookType(c.QueryParam("hooktype"))
 	if len(hookType) == 0 {
 		return c.String(http.StatusBadRequest, "Missing hookType param")
@@ -94,6 +100,25 @@ func subscribeToUpdatesHandler(c echo.Context) error {
 		if !open {
 			break
 		}
+
+		if hookType == queueHook {
+			links := state.([]Link)
+			votes := service.GetVotesForUser(links, userID)
+
+			for i, l := range links {
+				if vote, ok := votes[l.LinkID]; ok {
+					links[i].MyVote = vote
+				} else {
+					links[i].MyVote = 0
+				}
+			}
+
+			state = echo.Map{
+				"links": links,
+				"votes": votes,
+			}
+		}
+
 		msg, err := json.Marshal(state)
 		if err != nil {
 			log.Panicln("Error while marshalling", err)
