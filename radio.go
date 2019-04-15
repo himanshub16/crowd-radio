@@ -83,10 +83,8 @@ func (r *Radio) Engine() {
 				gotSome := r.refreshQueue()
 				if gotSome == 0 {
 					fmt.Println("There are no links available.")
-					continue
 				}
-			}
-			if r.nowPlaying == nil ||
+			} else if r.nowPlaying == nil ||
 				r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
 				// first set the current song as expired
 				r.nowPlaying = &r.queue[0]
@@ -99,18 +97,20 @@ func (r *Radio) Engine() {
 				r.broadcastUpdate(nowPlayingHook)
 				fmt.Println("now playing changed to", r.nowPlaying.LinkID)
 
+				r.ReorderQueue()
+				r.broadcastUpdate(queueHook)
+				// r.curState.NowPlaying = *r.nowPlaying
+				// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
+				// r.curState.Queue = r.queue
+				// r.broadcastUpdate()
+
 			}
-			r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
-			r.broadcastUpdate(playerTimeHook)
 
-			r.ReorderQueue()
-			r.broadcastUpdate(queueHook)
-			// r.curState.NowPlaying = *r.nowPlaying
-			// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
-			// r.curState.Queue = r.queue
-			// r.broadcastUpdate()
-
-			fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
+			if r.nowPlaying != nil {
+				r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
+				r.broadcastUpdate(playerTimeHook)
+				fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
+			}
 		}
 		fmt.Println("engine stopped")
 	}()
