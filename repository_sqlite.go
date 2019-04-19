@@ -284,11 +284,11 @@ func (r *SQLiteRepository) close() {
 	r.db.Close()
 }
 
-func NewSQLiteRepository(filePath string) *SQLiteRepository {
-	fmt.Println("got", filePath, "but using", "db.sqlite3")
+func NewSQLiteRepository(filename string) *SQLiteRepository {
 
-	db, err := sql.Open("sqlite3", "db.sqlite3")
+	db, err := sql.Open("sqlite3", filename)
 	if err != nil {
+		log.Panicln("Unable to open sqlite database")
 		return nil
 	}
 
@@ -332,7 +332,7 @@ func NewSQLiteRepository(filePath string) *SQLiteRepository {
 
 	for _, t := range tables {
 		if stmt, err = db.Prepare(t); err != nil {
-			log.Fatal("Failed to prepare stmt", err)
+			log.Fatal("Failed to prepare stmt", stmt, err)
 		}
 		defer stmt.Close()
 		if _, err = stmt.Exec(); err != nil {

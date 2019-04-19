@@ -1,6 +1,11 @@
 package main
 
+// TODO implement peer-to-peer leader election somehow
+
 import (
+	"log"
+	"net/url"
+	"os"
 	"sync"
 )
 
@@ -11,17 +16,35 @@ func main() {
 		linkRepo LinkRepository
 		voteRepo VoteRepository
 		testRepo TestRepository
-		radio    *Radio
-		service  *ServiceImpl
-		wg       sync.WaitGroup
+
+		dbUrl    string
+		pgdb     *PostgresRepository
+		sqlitedb *SQLiteRepository
+
+		radio   *Radio
+		service *ServiceImpl
+		wg      sync.WaitGroup
 	)
 
-	// just sqlite3 for now
-	sqlitedb := NewSQLiteRepository("db.sqlite3")
-	userRepo = sqlitedb
-	linkRepo = sqlitedb
-	voteRepo = sqlitedb
-	testRepo = sqlitedb
+	dbUrl = os.Getenv("DB_URL")
+	log.Println("database url", dbUrl)
+	if u, err := url.Parse(dbUrl); err == nil {
+		switch u.Scheme {
+		case "sqlite":
+			sqlitedb = NewSQLiteRepository(u.Hostname())
+			userRepo = sqlitedb
+			linkRepo = sqlitedb
+			voteRepo = sqlitedb
+			testRepo = sqlitedb
+
+		case "postgres":
+			pgdb = NewPostgresRepository(dbUrl)
+			userRepo = pgdb
+			linkRepo = pgdb
+			voteRepo = pgdb
+			testRepo = pgdb
+		}
+	}
 
 	service = &ServiceImpl{
 		userRepo: userRepo,
