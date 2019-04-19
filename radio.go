@@ -64,7 +64,7 @@ func NewRadio(__service Service) *Radio {
 		playerStartTimeSec:   0,
 		queue:                make([]Link, 0),
 		tickResSec:           1,
-		queueRefreshDur:      time.Second * 2,
+		queueRefreshDur:      time.Second * 10,
 		queueCapacity:        5,
 		nowPlayingHooks:      make(map[uuid.UUID](chan interface{})),
 		nowPlayingHooksMutex: &sync.Mutex{},
