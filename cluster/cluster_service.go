@@ -25,6 +25,8 @@ type ClusterService struct {
 
 	ShouldStartRadio chan bool
 	ShouldStartAPI   chan bool
+
+	Shm *SharedMem
 }
 
 func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken string) *ClusterService {
@@ -42,6 +44,8 @@ func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken 
 
 		ShouldStartAPI:   make(chan bool, 1),
 		ShouldStartRadio: make(chan bool, 1),
+
+		Shm: NewSharedMem(),
 	}
 }
 
@@ -57,12 +61,22 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 	for {
 		select {
 		case t := <-ticker.C:
-			if t.After(this.lastBulliedAt.Add(this.idleTimeToBecomeLeader)) &&
-				!this.IsLeader &&
-				this.meshNet.me.Priority >= this.biggestBullySoFar {
+			if t.After(this.lastBulliedAt.Add(this.idleTimeToBecomeLeader)) {
+				if !this.IsLeader &&
+					this.meshNet.me.Priority >= this.biggestBullySoFar {
+					// the second condition makes sure the if part comes are at the required time
 
-				this.IsLeader = true
-				log.Println("I proclaim myself as a leader")
+					this.IsLeader = true
+					this.ShouldStartAPI <- false
+					this.ShouldStartRadio <- true
+					log.Println("I proclaim myself as a leader.")
+
+				} else {
+					// let's wait for the right time to come, or someone is already the leader
+					this.ShouldStartAPI <- true
+					this.ShouldStartRadio <- false
+					log.Println("Someone else is perhaps the leader.")
+				}
 			}
 
 		case nodeID := <-this.meshNet.soldierDown:
@@ -75,6 +89,9 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 				this.handelBullyMsg(msg)
 
 			case shmMsg:
+				// our implementations only send writes to shared memory
+				newMem := msg.Content.(map[string]interface{})
+				this.Shm.Update(newMem)
 
 			default:
 			}
