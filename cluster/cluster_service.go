@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +15,16 @@ type ClusterService struct {
 	clusterUrl   string
 	discoveryUrl string
 	meshNet      *MeshNetwork
+
+	broadcastChan chan Message
+	// decisions based on current state
+	lastBulliedAt          time.Time
+	idleTimeToBecomeLeader time.Duration
+	biggestBullySoFar      int
+	IsLeader               bool
+
+	ShouldStartRadio chan bool
+	ShouldStartAPI   chan bool
 }
 
 func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken string) *ClusterService {
@@ -21,30 +32,110 @@ func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken 
 		clusterUrl:   clusterUrl,
 		discoveryUrl: discoveryUrl,
 		meshNet:      NewMeshNetwork(me, authToken),
+
+		broadcastChan: make(chan Message, 5),
+
+		lastBulliedAt:          time.Now(),
+		idleTimeToBecomeLeader: time.Second * 5,
+		biggestBullySoFar:      me.Priority,
+		IsLeader:               false,
+
+		ShouldStartAPI:   make(chan bool, 1),
+		ShouldStartRadio: make(chan bool, 1),
 	}
 }
 
 func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 	go func() {
 		defer parentwg.Done()
-		ticker := time.NewTicker(time.Second * 1)
-		for range ticker.C {
-			for nodeID := range this.meshNet.outgoingChan {
-				msg := Message{
-					NodeID:  this.meshNet.me.NodeID,
-					MsgType: bullyMsg,
-					Content: "hello",
-				}
-
-				this.meshNet.outgoingChan[nodeID] <- msg
-			}
-		}
-
-		log.Println("manageIncomingMessages ends here")
+		this.handleBroadcasts()
 	}()
 
-	for msg := range this.meshNet.commonIncomingChan {
-		log.Println("incoming message", msg)
+	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case t := <-ticker.C:
+			if t.After(this.lastBulliedAt.Add(this.idleTimeToBecomeLeader)) &&
+				!this.IsLeader &&
+				this.meshNet.me.Priority >= this.biggestBullySoFar {
+
+				this.IsLeader = true
+				log.Println("I proclaim myself as a leader")
+			}
+
+		case nodeID := <-this.meshNet.soldierDown:
+			this.handleSoldierDown(nodeID)
+
+		case msg := <-this.meshNet.commonIncomingChan:
+
+			switch msg.MsgType {
+			case bullyMsg:
+				this.handelBullyMsg(msg)
+
+			case shmMsg:
+
+			default:
+			}
+		}
+	}
+
+}
+
+func (this *ClusterService) handleBroadcasts() {
+	for msg := range this.broadcastChan {
+		for nodeID := range this.meshNet.outgoingChan {
+			if msg.MsgType == bullyMsg {
+				log.Println("bullying")
+			}
+			this.meshNet.outgoingChan[nodeID] <- msg
+		}
+	}
+
+	log.Println("manageIncomingMessages ends here")
+}
+
+func (this *ClusterService) handleSoldierDown(nodeID string) {
+	log.Println("solider down ", nodeID)
+
+	// if I'm the leader, I don't care if someone is down
+	if !this.IsLeader {
+		log.Println("leader election restarts")
+		this.biggestBullySoFar = -1
+		this.lastBulliedAt = time.Now()
+		this.bullyOthers()
+	} else {
+		log.Println("I'm the leader. Don't want a competitor.")
+	}
+}
+
+func (this *ClusterService) handelBullyMsg(msg Message) {
+	var val int = int(msg.Content.(float64))
+
+	if val == this.meshNet.me.Priority {
+		newPrio := rand.Intn(100)
+		this.meshNet.me.Priority = newPrio
+		log.Println(msg.NodeID, " has same priority. ", val, " Updating myself to ", newPrio)
+		return
+	}
+
+	if val < this.meshNet.me.Priority {
+		log.Println(this.meshNet.me.Priority, "bullying others")
+		this.bullyOthers()
+	} else {
+		this.biggestBullySoFar = val
+		this.lastBulliedAt = time.Now()
+		this.IsLeader = false
+		log.Println(this.meshNet.me.Priority, " bullied by ", msg.NodeID, " with val ", val, " : ", this.biggestBullySoFar)
+	}
+}
+
+func (this *ClusterService) bullyOthers() {
+	this.broadcastChan <- Message{
+		NodeID:  this.meshNet.me.NodeID,
+		MsgType: bullyMsg,
+		Content: this.meshNet.me.Priority,
 	}
 }
 

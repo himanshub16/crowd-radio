@@ -73,6 +73,7 @@ func (ds *DiscoveryService) performHealthCheck() {
 				log.Fatal("failed to create request err:", err)
 			}
 			req.Header.Set("auth_token", ds.authToken)
+			req.Header.Set("node_id", nodeID)
 
 			client := http.Client{}
 			res, err := client.Do(req)

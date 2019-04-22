@@ -27,7 +27,7 @@ const (
 type Message struct {
 	NodeID  string      `json:"node_id"`
 	MsgType MessageType `json:"message_type"`
-	Content string      `json:"content"`
+	Content interface{} `json:"content"`
 }
 
 // There are some incoming connections and some outgoing connections
@@ -52,6 +52,7 @@ type MeshNetwork struct {
 	// interrupt channel for each connection
 	interruptConnChan    map[string](chan interface{})
 	interruptServiceChan chan interface{}
+	soldierDown          chan string
 }
 
 func NewMeshNetwork(me NodeInfoT, authToken string) *MeshNetwork {
@@ -66,10 +67,11 @@ func NewMeshNetwork(me NodeInfoT, authToken string) *MeshNetwork {
 
 		chanMutex:          &sync.Mutex{},
 		outgoingChan:       make(map[string](chan Message)),
-		commonIncomingChan: make(chan Message),
+		commonIncomingChan: make(chan Message, 10),
 
-		interruptConnChan:    make(map[string](chan interface{})),
-		interruptServiceChan: make(chan interface{}),
+		interruptConnChan:    make(map[string](chan interface{}), 5),
+		interruptServiceChan: make(chan interface{}, 10),
+		soldierDown:          make(chan string, 10),
 	}
 }
 
@@ -132,15 +134,18 @@ func (this *MeshNetwork) setupOutgoingToSingleNode(node NodeInfoT, wg *sync.Wait
 
 		// signalled to interrupt
 		case <-this.interruptConnChan[nodeID]:
+			log.Println("interrupt received for ", nodeID)
 			if err := conn.WriteMessage(
 				websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 
 				log.Println("failed to close ws conn for ", nodeID, " err:", err)
-				return
 			}
+			return
+
 		}
 	}
+	log.Println("closed connection for ", nodeID)
 }
 
 func (this *MeshNetwork) setupIncomingServer(addr string, parentWg *sync.WaitGroup) {
@@ -162,6 +167,13 @@ func (this *MeshNetwork) healthCheckHandler(w http.ResponseWriter, r *http.Reque
 	if token != this.authToken {
 		w.WriteHeader(http.StatusUnauthorized)
 		fmt.Fprint(w, "Missing/incorrect auth_token header")
+		return
+	}
+
+	nodeid := r.Header.Get("node_id")
+	if nodeid != this.me.NodeID {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Perhaps my id has changed.")
 		return
 	}
 
@@ -205,7 +217,7 @@ func (this *MeshNetwork) handleIncomingConn(w http.ResponseWriter, r *http.Reque
 			if err := ws.ReadJSON(&msg); err != nil {
 				log.Println("failed reading message ", err)
 				this.interruptConnChan[nodeID] <- true
-				break
+				return
 			}
 			this.commonIncomingChan <- msg
 		}
@@ -213,6 +225,10 @@ func (this *MeshNetwork) handleIncomingConn(w http.ResponseWriter, r *http.Reque
 
 	// send messages
 	for {
+		// break breaks from nearest select/for
+		// so better use return here
+		// defer has got you covered
+		// https://stackoverflow.com/a/11105482/5163807
 		select {
 		case msg := <-this.outgoingChan[nodeID]:
 			if err := ws.WriteJSON(msg); err != nil {
@@ -228,8 +244,17 @@ func (this *MeshNetwork) handleIncomingConn(w http.ResponseWriter, r *http.Reque
 
 func (this *MeshNetwork) openChannelsForNewNode(nodeID string) {
 	this.chanMutex.Lock()
-	this.outgoingChan[nodeID] = make(chan Message)
-	this.interruptConnChan[nodeID] = make(chan interface{})
+	// don't create channels with 0 buffer size
+	// https://stackoverflow.com/a/39919463/5163807
+	this.outgoingChan[nodeID] = make(chan Message, 1)
+	this.interruptConnChan[nodeID] = make(chan interface{}, 1)
+
+	// mandatory bullying
+	this.outgoingChan[nodeID] <- Message{
+		MsgType: bullyMsg,
+		NodeID:  this.me.NodeID,
+		Content: this.me.Priority,
+	}
 	this.chanMutex.Unlock()
 }
 
@@ -240,5 +265,7 @@ func (this *MeshNetwork) closeChannelsForNode(nodeID string) {
 	close(this.interruptConnChan[nodeID])
 	delete(this.interruptConnChan, nodeID)
 	this.chanMutex.Unlock()
+
+	this.soldierDown <- nodeID
 	fmt.Println("connection closed for ", nodeID)
 }

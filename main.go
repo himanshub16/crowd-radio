@@ -88,7 +88,7 @@ func performCleanup() {
 
 func main() {
 	parseFlags()
-	rand.Seed(time.Now().Unix())
+	rand.Seed(time.Now().UnixNano())
 
 	if runDs {
 	} else {
