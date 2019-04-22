@@ -14,3 +14,4 @@
 gin-bin
 crowd-radio
 upnext-backend
+/cmd/discovery_service/discovery_service
