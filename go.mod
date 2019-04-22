@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/google/uuid v1.1.1
+	github.com/gorilla/websocket v1.4.0
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/labstack/echo v3.3.10+incompatible
 	github.com/labstack/gommon v0.2.8 // indirect
@@ -17,3 +18,7 @@ require (
 	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2 // indirect
 	google.golang.org/appengine v1.5.0 // indirect
 )
+
+require github.com/himanshub16/upnext-backend/cluster v0.0.0
+
+replace github.com/himanshub16/upnext-backend/cluster v0.0.0 => ./cluster
