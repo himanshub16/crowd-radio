@@ -4,17 +4,34 @@ package main
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/himanshub16/upnext-backend/cluster"
 	"sort"
 	"sync"
 	"time"
 )
 
+type RadioType string
+type HookType string
+
+const (
+	masterRadio RadioType = "masterRadio"
+	peerRadio   RadioType = "peerRadio"
+)
+const (
+	nowPlayingHook HookType = "nowPlaying"
+	playerTimeHook HookType = "playerTime"
+	queueHook      HookType = "queue"
+)
+
 type Radio struct {
+	radioType RadioType
+	shm       *cluster.SharedMem
+	running   bool
+
 	queue                []Link
 	nowPlaying           *Link
 	playerStartTimeSec   uint64
 	playerCurTimeSec     uint64
-	ticker               *time.Ticker
 	tickResSec           time.Duration
 	queueRefreshDur      time.Duration
 	nextQueueRefreshAt   time.Time
@@ -25,15 +42,9 @@ type Radio struct {
 	playerTimeHooksMutex *sync.Mutex
 	queueHooks           map[uuid.UUID](chan interface{})
 	queueHooksMutex      *sync.Mutex
+
+	interrupt chan interface{}
 }
-
-type HookType string
-
-const (
-	nowPlayingHook HookType = "nowPlaying"
-	playerTimeHook HookType = "playerTime"
-	queueHook      HookType = "queue"
-)
 
 func IsValidHookType(htype HookType) bool {
 	switch htype {
@@ -56,9 +67,12 @@ func IsValidHookType(htype HookType) bool {
 
 var _service Service
 
-func NewRadio(__service Service) *Radio {
+func NewRadio(__service Service, shm *cluster.SharedMem) *Radio {
 	_service = __service
 	return &Radio{
+		shm:     shm,
+		running: false,
+
 		nowPlaying:           nil,
 		playerCurTimeSec:     0,
 		playerStartTimeSec:   0,
@@ -72,64 +86,106 @@ func NewRadio(__service Service) *Radio {
 		playerTimeHooksMutex: &sync.Mutex{},
 		queueHooks:           make(map[uuid.UUID](chan interface{})),
 		queueHooksMutex:      &sync.Mutex{},
+
+		interrupt: make(chan interface{}, 1),
 	}
 }
 
-func (r *Radio) Engine() {
-	go func() {
-		for t := range r.ticker.C {
-			if len(r.queue) == 0 ||
-				t.After(r.nextQueueRefreshAt) {
-				gotSome := r.refreshQueue()
-				if gotSome == 0 {
-					fmt.Println("There are no links available.")
-				}
-			} else if r.nowPlaying == nil ||
-				r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
-				// first set the current song as expired
-				r.nowPlaying = &r.queue[0]
-				r.playerStartTimeSec = uint64(t.Unix())
-				r.queue = r.queue[1:len(r.queue)]
-
-				r.nowPlaying.IsExpired = true
-				_service.UpdateLink(*r.nowPlaying)
-
-				r.broadcastUpdate(nowPlayingHook)
-				fmt.Println("now playing changed to", r.nowPlaying.LinkID)
-
-				r.ReorderQueue()
-				r.broadcastUpdate(queueHook)
-				// r.curState.NowPlaying = *r.nowPlaying
-				// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
-				// r.curState.Queue = r.queue
-				// r.broadcastUpdate()
-
-			}
-
-			if r.nowPlaying != nil {
-				r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
-				r.broadcastUpdate(playerTimeHook)
-				fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
-
-				if r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
-					r.nowPlaying = nil
-				}
-			} else {
-				r.playerCurTimeSec = 1 << 30
-				r.broadcastUpdate(playerTimeHook)
-			}
-		}
-		fmt.Println("engine stopped")
-	}()
-}
-
-func (r *Radio) Start() {
-	// start an asynchronous radio which manages player state with time
+func (r *Radio) MasterEngine() {
 	r.nowPlaying = nil
 	r.playerCurTimeSec = 0
 	r.playerStartTimeSec = 0
-	r.ticker = time.NewTicker(time.Second)
-	r.Engine()
+
+	ticker := time.NewTicker(time.Second * r.tickResSec)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.interrupt:
+			return
+		case t := <-ticker.C:
+			r.singleIteration(t)
+		}
+	}
+}
+
+func (r *Radio) PeerEngine() {
+	for {
+		select {
+		case <-r.interrupt:
+			return
+		case v := <-r.shm.UpdateChan:
+			r.broadcastUpdate(HookType(v.Varname), v.Value)
+		}
+	}
+}
+
+func (r *Radio) singleIteration(t time.Time) {
+
+	if len(r.queue) == 0 ||
+		t.After(r.nextQueueRefreshAt) {
+		gotSome := r.refreshQueue()
+		if gotSome == 0 {
+			fmt.Println("There are no links available.")
+		}
+	} else if r.nowPlaying == nil ||
+		r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
+		// first set the current song as expired
+		r.nowPlaying = &r.queue[0]
+		r.playerStartTimeSec = uint64(t.Unix())
+		r.queue = r.queue[1:len(r.queue)]
+
+		r.nowPlaying.IsExpired = true
+		_service.UpdateLink(*r.nowPlaying)
+
+		// r.broadcastUpdate(nowPlayingHook, *r.nowPlaying)
+		r.shm.WriteVar(string(nowPlayingHook), *r.nowPlaying)
+		fmt.Println("now playing changed to", r.nowPlaying.LinkID)
+
+		r.ReorderQueue()
+		// r.broadcastUpdate(queueHook, r.queue)
+		r.shm.WriteVar(string(queueHook), r.queue)
+
+		// r.curState.NowPlaying = *r.nowPlaying
+		// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
+		// r.curState.Queue = r.queue
+		// r.broadcastUpdate()
+
+	}
+
+	if r.nowPlaying != nil {
+		r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
+		// r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
+		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec)
+		fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
+
+		if r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
+			r.nowPlaying = nil
+		}
+	} else {
+		r.playerCurTimeSec = 1 << 30
+		// r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
+		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec)
+	}
+}
+
+func (r *Radio) Start() {
+	if r.radioType == masterRadio {
+		// start an asynchronous radio which manages player state with time
+		r.MasterEngine()
+	} else if r.radioType == peerRadio {
+		// just subscribe to whatever channel is available
+		r.PeerEngine()
+	}
+}
+
+func (r *Radio) SwitchMode(newMode RadioType) {
+	if r.running {
+		r.Shutdown()
+	}
+	r.radioType = newMode
+	go r.Start()
+	r.running = true
 }
 
 func (r *Radio) refreshQueue() int {
@@ -163,8 +219,8 @@ func (r *Radio) ReorderQueue() {
 }
 
 func (r *Radio) Shutdown() {
-	// close and perform cleanup if required
-	r.ticker.Stop()
+	// close engine
+	r.interrupt <- true
 
 	// clean and close all channels
 	for id := range r.nowPlayingHooks {
@@ -178,22 +234,22 @@ func (r *Radio) Shutdown() {
 	}
 }
 
-func (r *Radio) broadcastUpdate(htype HookType) {
+func (r *Radio) broadcastUpdate(htype HookType, msg interface{}) {
 	switch htype {
 	case nowPlayingHook:
 		for id := range r.nowPlayingHooks {
 			// already a struct / can be marshalled to json
-			r.nowPlayingHooks[id] <- *r.nowPlaying
+			r.nowPlayingHooks[id] <- msg
 		}
 	case queueHook:
 		for id := range r.queueHooks {
 			// already a struct / can be marshalled to json
-			r.queueHooks[id] <- r.queue
+			r.queueHooks[id] <- msg
 		}
 	case playerTimeHook:
 		for id := range r.playerTimeHooks {
 			// already a struct / can be marshalled to json
-			r.playerTimeHooks[id] <- r.playerCurTimeSec
+			r.playerTimeHooks[id] <- msg
 		}
 	}
 }

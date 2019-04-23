@@ -22,11 +22,12 @@ type ClusterService struct {
 	idleTimeToBecomeLeader time.Duration
 	biggestBullySoFar      int
 	IsLeader               bool
+	leaderElected          bool
 
-	ShouldStartRadio chan bool
-	ShouldStartAPI   chan bool
+	SwitchMode chan bool
 
-	Shm *SharedMem
+	Shm       *SharedMem
+	interrupt chan interface{}
 }
 
 func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken string) *ClusterService {
@@ -41,11 +42,12 @@ func NewClusterService(clusterUrl, discoveryUrl string, me NodeInfoT, authToken 
 		idleTimeToBecomeLeader: time.Second * 5,
 		biggestBullySoFar:      me.Priority,
 		IsLeader:               false,
+		leaderElected:          false,
 
-		ShouldStartAPI:   make(chan bool, 1),
-		ShouldStartRadio: make(chan bool, 1),
+		SwitchMode: make(chan bool),
 
-		Shm: NewSharedMem(),
+		Shm:       NewSharedMem(),
+		interrupt: make(chan interface{}, 1),
 	}
 }
 
@@ -58,25 +60,29 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 
+	leaderElected := false
+
 	for {
 		select {
 		case t := <-ticker.C:
-			if t.After(this.lastBulliedAt.Add(this.idleTimeToBecomeLeader)) {
+			if t.After(this.lastBulliedAt.Add(this.idleTimeToBecomeLeader)) &&
+				!this.leaderElected {
 				if !this.IsLeader &&
 					this.meshNet.me.Priority >= this.biggestBullySoFar {
 					// the second condition makes sure the if part comes are at the required time
 
 					this.IsLeader = true
-					this.ShouldStartAPI <- false
-					this.ShouldStartRadio <- true
-					log.Println("I proclaim myself as a leader.")
+					this.SwitchMode <- this.IsLeader
+					log.Println("I proclaim myself as a leader.", this.IsLeader)
 
-				} else {
+				} else if !leaderElected {
 					// let's wait for the right time to come, or someone is already the leader
-					this.ShouldStartAPI <- true
-					this.ShouldStartRadio <- false
-					log.Println("Someone else is perhaps the leader.")
+					leaderElected = true
+					this.SwitchMode <- this.IsLeader
+					log.Println("Someone else is perhaps the leader.", this.IsLeader)
 				}
+
+				this.leaderElected = true
 			}
 
 		case nodeID := <-this.meshNet.soldierDown:
@@ -86,30 +92,50 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 
 			switch msg.MsgType {
 			case bullyMsg:
-				this.handelBullyMsg(msg)
+				this.handleBullyMsg(msg)
 
 			case shmMsg:
 				// our implementations only send writes to shared memory
-				newMem := msg.Content.(map[string]interface{})
-				this.Shm.Update(newMem)
+				evt := msg.Content.(map[string]interface{})
+				this.Shm.WriteVar(evt["Varname"].(string), evt["Value"])
+				log.Println("updated", evt["Varname"], " to ", evt["Value"])
+				// this.Shm.Update(newMem)
 
 			default:
 			}
+
+		case <-this.interrupt:
+			return
 		}
 	}
 
 }
 
 func (this *ClusterService) handleBroadcasts() {
-	for msg := range this.broadcastChan {
-		for nodeID := range this.meshNet.outgoingChan {
-			if msg.MsgType == bullyMsg {
-				log.Println("bullying")
+	for {
+		select {
+		case msg := <-this.broadcastChan:
+			for nodeID := range this.meshNet.outgoingChan {
+				if msg.MsgType == bullyMsg {
+					log.Println("bullying")
+				}
+				this.meshNet.outgoingChan[nodeID] <- msg
 			}
-			this.meshNet.outgoingChan[nodeID] <- msg
+
+		case shmUpdate := <-this.Shm.UpdateChan:
+			msg := Message{
+				MsgType: shmMsg,
+				NodeID:  this.meshNet.me.NodeID,
+				Content: shmUpdate,
+			}
+			for nodeID := range this.meshNet.outgoingChan {
+				this.meshNet.outgoingChan[nodeID] <- msg
+			}
+
+		case <-this.interrupt:
+			return
 		}
 	}
-
 	log.Println("manageIncomingMessages ends here")
 }
 
@@ -120,6 +146,7 @@ func (this *ClusterService) handleSoldierDown(nodeID string) {
 	if !this.IsLeader {
 		log.Println("leader election restarts")
 		this.biggestBullySoFar = -1
+		this.leaderElected = false
 		this.lastBulliedAt = time.Now()
 		this.bullyOthers()
 	} else {
@@ -127,7 +154,7 @@ func (this *ClusterService) handleSoldierDown(nodeID string) {
 	}
 }
 
-func (this *ClusterService) handelBullyMsg(msg Message) {
+func (this *ClusterService) handleBullyMsg(msg Message) {
 	var val int = int(msg.Content.(float64))
 
 	if val == this.meshNet.me.Priority {
@@ -144,6 +171,7 @@ func (this *ClusterService) handelBullyMsg(msg Message) {
 		this.biggestBullySoFar = val
 		this.lastBulliedAt = time.Now()
 		this.IsLeader = false
+		this.leaderElected = false
 		log.Println(this.meshNet.me.Priority, " bullied by ", msg.NodeID, " with val ", val, " : ", this.biggestBullySoFar)
 	}
 }
@@ -165,6 +193,16 @@ func (this *ClusterService) Start() {
 	go this.meshNet.setupOutgoingConn(otherNodes, &wg)
 	go this.manageIncomingMessages(&wg)
 	wg.Wait()
+}
+
+func (this *ClusterService) Shutdown() {
+	// incoming server
+	// outoingconn
+	this.meshNet.Shutdown()
+	// manageIncomingMessages
+	this.interrupt <- true
+	// handle broadcasts
+	this.interrupt <- true
 }
 
 func (this *ClusterService) askDiscoveryServiceForPeers() []NodeInfoT {

@@ -3,6 +3,7 @@ package main
 // TODO implement peer-to-peer leader election somehow
 
 import (
+	"context"
 	"flag"
 	"github.com/google/uuid"
 	"github.com/himanshub16/upnext-backend/cluster"
@@ -77,48 +78,47 @@ func prepareWebService() *ServiceImpl {
 	return service
 }
 
-// TODO pass required variables here to do cleanup
-func performCleanup() {
-	sigint := make(chan os.Signal, 1)
-	signal.Notify(sigint, os.Interrupt)
-	<-sigint
-
-	// we have received an interrupt, cleanup is required
-}
-
 func main() {
 	parseFlags()
 	rand.Seed(time.Now().UnixNano())
 
-	if runDs {
-	} else {
-		me := cluster.NodeInfoT{
-			NodeID:   nodeID,
-			URL:      clusterUrl,
-			Priority: rand.Intn(100),
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+
+	me := cluster.NodeInfoT{
+		NodeID:   nodeID,
+		URL:      clusterUrl,
+		Priority: rand.Intn(100),
+	}
+	log.Println("starting cluster at ", clusterUrl)
+	log.Println("This is me : ", me)
+
+	service := prepareWebService()
+	c := cluster.NewClusterService(clusterUrl, discoUrl, me, authToken)
+	r := NewRadio(service, c.Shm)
+	log.Println(r.shm, r.nowPlaying)
+	apiRouter := NewHTTPRouter(service, radio)
+
+	go c.Start()
+	for {
+		select {
+		case <-interrupt:
+			c.Shutdown()
+			r.Shutdown()
+			// apiRouter.Shutdown(context.Background())
+			log.Println("stopping api router")
+		case isLeader := <-c.SwitchMode:
+			if isLeader {
+				r.SwitchMode(masterRadio)
+				// go apiRouter.Start(apiUrl)
+				log.Println("starting http router")
+			} else {
+				r.SwitchMode(peerRadio)
+				apiRouter.Shutdown(context.Background())
+				log.Println("stopping api router")
+			}
 		}
-		log.Println("starting cluster at ", clusterUrl)
-		log.Println("This is me : ", me)
-		c := cluster.NewClusterService(clusterUrl, discoUrl, me, authToken)
-		c.Start()
-		return
-
-		service := prepareWebService()
-		// if running in replicated mode
-		// leader election would have happened
-		// and we know if this is a master/slave
-
-		radio = NewRadio(service)
-		wg.Add(1)
-		go radio.Start()
-		defer func() {
-			radio.Shutdown()
-			wg.Add(-1)
-		}()
-
-		echoRouter := NewHTTPRouter(service, radio)
-		echoRouter.Start(apiUrl)
 	}
 
-	wg.Wait()
+	log.Println("time ends now")
 }

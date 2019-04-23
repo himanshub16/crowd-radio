@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
@@ -268,4 +269,13 @@ func (this *MeshNetwork) closeChannelsForNode(nodeID string) {
 
 	this.soldierDown <- nodeID
 	fmt.Println("connection closed for ", nodeID)
+}
+
+func (this *MeshNetwork) Shutdown() {
+	// shutdown all connections
+	for nodeID := range this.interruptConnChan {
+		this.interruptConnChan[nodeID] <- true
+	}
+	// shutdown server
+	this.incomingServer.Shutdown(context.Background())
 }

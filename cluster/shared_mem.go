@@ -4,6 +4,11 @@ import (
 	"sync"
 )
 
+type UpdateEvent struct {
+	Varname string
+	Value   interface{}
+}
+
 type SharedMem struct {
 	Shm     map[string]interface{}
 	ShmLock *sync.Mutex
@@ -11,14 +16,14 @@ type SharedMem struct {
 	// UpdateChan notifies the receiver that some update has happened
 	// whicn can be trasmitted to concerned nodes
 	// ONLY FOR MASTER
-	UpdateChan chan interface{}
+	UpdateChan chan UpdateEvent
 }
 
 func NewSharedMem() *SharedMem {
 	return &SharedMem{
 		Shm:        make(map[string]interface{}),
 		ShmLock:    &sync.Mutex{},
-		UpdateChan: make(chan interface{}, 5),
+		UpdateChan: make(chan UpdateEvent, 5),
 	}
 }
 
@@ -26,7 +31,10 @@ func (this *SharedMem) WriteVar(varname string, value interface{}) {
 	this.ShmLock.Lock()
 	this.Shm[varname] = value
 	this.ShmLock.Unlock()
-	this.UpdateChan <- true
+	this.UpdateChan <- UpdateEvent{
+		Varname: varname,
+		Value:   value,
+	}
 }
 
 func (this *SharedMem) Update(newmem map[string]interface{}) {
