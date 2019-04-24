@@ -32,6 +32,7 @@ func NewHTTPRouter(_service Service, _radio *Radio) *echo.Echo {
 	// router := echo.New()
 	router := r.Group("/api")
 	router.File("/test_subscribe", "index.html")
+	router.GET("/isLeader", tellIfLeader)
 	router.GET("/health", healthCheckHandler)
 	router.POST("/login", loginHandler)
 	router.GET("/subscribe", subscribeToUpdatesHandler)
@@ -346,4 +347,19 @@ func radioGetQueueHandler(c echo.Context) error {
 		"links": links,
 		"votes": votes,
 	})
+}
+
+func tellIfLeader(c echo.Context) error {
+	switch radio.radioType {
+	case masterRadio:
+		return c.JSON(http.StatusOK, echo.Map{
+			"message": "I am the leader",
+		})
+
+	case peerRadio:
+		return c.JSON(http.StatusExpectationFailed, echo.Map{
+			"message": "I am not the leader",
+		})
+	}
+	return nil
 }
