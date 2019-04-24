@@ -183,16 +183,16 @@ func (r *Radio) singleIteration(t time.Time) {
 		r.shm.WriteVar(string(nowPlayingHook), *r.nowPlaying, true)
 		fmt.Println("now playing changed to", r.nowPlaying.LinkID)
 
-		r.ReorderQueue()
-		// r.broadcastUpdate(queueHook, r.queue)
-		r.shm.WriteVar(string(queueHook), r.queue, true)
-
 		// r.curState.NowPlaying = *r.nowPlaying
 		// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
 		// r.curState.Queue = r.queue
 		// r.broadcastUpdate()
 
 	}
+
+	r.ReorderQueue()
+	// r.broadcastUpdate(queueHook, r.queue)
+	r.shm.WriteVar(string(queueHook), r.queue, true)
 
 	if r.nowPlaying != nil {
 		r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
