@@ -180,8 +180,9 @@ func (r *PostgresRepository) MarkVote(linkID int64, userID string, score int64) 
 	query := `
 	  insert into votes(link_id, user_id, score)
 	  values ($1, $2, $3)
-      on conflict(link_id) do
+      on conflict(link_id, user_id) do update
          set user_id=excluded.user_id,
+             link_id=excluded.link_id,
              score=excluded.score;
 	`
 	_, err := r.db.Exec(query, linkID, userID, score)

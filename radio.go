@@ -118,7 +118,7 @@ func (r *Radio) PeerEngine() {
 		case t := <-ticker.C:
 			if t.After(r.shm.LastUpdatedAt) {
 				r.updateStateFromShm()
-				fmt.Println("shm updated", r.nowPlaying, r.queue, r.playerCurTimeSec)
+				// fmt.Println("shm updated", r.nowPlaying, r.queue, r.playerCurTimeSec)
 				r.broadcastUpdate(nowPlayingHook, r.nowPlaying)
 				r.broadcastUpdate(queueHook, r.queue)
 				r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
