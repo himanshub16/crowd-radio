@@ -97,7 +97,7 @@ func main() {
 	c := cluster.NewClusterService(clusterUrl, discoUrl, me, authToken)
 	r := NewRadio(service, c.Shm)
 	log.Println(r.shm, r.nowPlaying)
-	apiRouter := NewHTTPRouter(service, radio)
+	apiRouter := NewHTTPRouter(service, r)
 
 	go c.Start()
 	for {
@@ -105,17 +105,17 @@ func main() {
 		case <-interrupt:
 			c.Shutdown()
 			r.Shutdown()
-			// apiRouter.Shutdown(context.Background())
+			apiRouter.Shutdown(context.Background())
 			log.Println("stopping api router")
 		case isLeader := <-c.SwitchMode:
 			if isLeader {
 				r.SwitchMode(masterRadio)
-				// go apiRouter.Start(apiUrl)
-				log.Println("starting http router")
-			} else {
-				r.SwitchMode(peerRadio)
 				apiRouter.Shutdown(context.Background())
 				log.Println("stopping api router")
+			} else {
+				r.SwitchMode(peerRadio)
+				go apiRouter.Start(apiUrl)
+				log.Println("starting http router")
 			}
 		}
 	}

@@ -83,16 +83,19 @@ func (this *MeshNetwork) setupOutgoingConn(nodes []NodeInfoT, parentWg *sync.Wai
 	for _, node := range nodes {
 		wg.Add(1)
 		go this.setupOutgoingToSingleNode(node, &wg)
+		wg.Wait()
 	}
-	wg.Wait()
 }
 
 func (this *MeshNetwork) setupOutgoingToSingleNode(node NodeInfoT, wg *sync.WaitGroup) {
 	defer wg.Done()
-
 	var addr, nodeID string
 	addr = fmt.Sprint("ws://", node.URL)
 	nodeID = node.NodeID
+
+	if _, exists := this.interruptConnChan[nodeID]; exists {
+		return
+	}
 
 	hdr := make(http.Header)
 	hdr.Add("auth_token", this.authToken)

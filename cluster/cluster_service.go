@@ -60,8 +60,6 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 
-	leaderElected := false
-
 	for {
 		select {
 		case t := <-ticker.C:
@@ -75,9 +73,9 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 					this.SwitchMode <- this.IsLeader
 					log.Println("I proclaim myself as a leader.", this.IsLeader)
 
-				} else if !leaderElected {
+				} else {
 					// let's wait for the right time to come, or someone is already the leader
-					leaderElected = true
+					this.leaderElected = true
 					this.SwitchMode <- this.IsLeader
 					log.Println("Someone else is perhaps the leader.", this.IsLeader)
 				}
@@ -97,8 +95,14 @@ func (this *ClusterService) manageIncomingMessages(parentwg *sync.WaitGroup) {
 			case shmMsg:
 				// our implementations only send writes to shared memory
 				evt := msg.Content.(map[string]interface{})
-				this.Shm.WriteVar(evt["Varname"].(string), evt["Value"])
-				log.Println("updated", evt["Varname"], " to ", evt["Value"])
+				// log.Println("shm update received ", evt["Mem"].(map[string]interface{}))
+				var ts time.Time
+				json.Unmarshal([]byte(evt["Ts"].(string)), &ts)
+				// if ts.After(this.Shm.LastUpdatedAt) {
+				this.Shm.Update(evt["Mem"].(map[string]interface{}))
+				// }
+				// this.Shm.WriteVar(evt["Varname"].(string), evt["Value"], false) // not master
+				// log.Println("updated", evt["Varname"], " to ", evt["Value"], " from ", msg.NodeID)
 				// this.Shm.Update(newMem)
 
 			default:
@@ -122,7 +126,7 @@ func (this *ClusterService) handleBroadcasts() {
 				this.meshNet.outgoingChan[nodeID] <- msg
 			}
 
-		case shmUpdate := <-this.Shm.UpdateChan:
+		case shmUpdate := <-this.Shm.MasterChan:
 			msg := Message{
 				MsgType: shmMsg,
 				NodeID:  this.meshNet.me.NodeID,

@@ -100,6 +100,7 @@ func subscribeToUpdatesHandler(c echo.Context) error {
 
 	for {
 		state, open := <-hookChan
+		log.Println("sse handler got ", state)
 		if !open {
 			break
 		}

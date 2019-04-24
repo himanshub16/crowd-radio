@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/himanshub16/upnext-backend/cluster"
@@ -110,13 +111,53 @@ func (r *Radio) MasterEngine() {
 }
 
 func (r *Radio) PeerEngine() {
+	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
 	for {
 		select {
+		case t := <-ticker.C:
+			if t.After(r.shm.LastUpdatedAt) {
+				r.updateStateFromShm()
+				fmt.Println("shm updated", r.nowPlaying, r.queue, r.playerCurTimeSec)
+				r.broadcastUpdate(nowPlayingHook, r.nowPlaying)
+				r.broadcastUpdate(queueHook, r.queue)
+				r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
+			}
 		case <-r.interrupt:
 			return
-		case v := <-r.shm.UpdateChan:
-			r.broadcastUpdate(HookType(v.Varname), v.Value)
+			// case v := <-r.shm.PeerChan:
+			// 	fmt.Println("radio got update to", v.Ts)
+			// 	// r.broadcastUpdate(v.Ts, v.Mem)
+			// 	// update radio parameters from hook variables
+			// 	fmt.Println(r.shm.ReadVar(string(nowPlayingHook)))
 		}
+	}
+}
+
+func (r *Radio) updateStateFromShm() {
+	// nowPlaying
+	np, err := json.Marshal(r.shm.ReadVar(string(nowPlayingHook)))
+	if err != nil {
+		fmt.Println("failed to marshal nowplaying")
+	}
+	if err = json.Unmarshal(np, &r.nowPlaying); err != nil {
+		fmt.Println("failed to unmarshal nowplaying")
+	}
+
+	pt, err := json.Marshal(r.shm.ReadVar(string(playerTimeHook)))
+	if err != nil {
+		fmt.Println("failed to marshal nowplaying")
+	}
+	if err = json.Unmarshal(pt, &r.playerCurTimeSec); err != nil {
+		fmt.Println("failed to unmarshal playerCurTimeSec")
+	}
+
+	q, err := json.Marshal(r.shm.ReadVar(string(queueHook)))
+	if err != nil {
+		fmt.Println("failed to marshal nowplaying")
+	}
+	if err = json.Unmarshal(q, &r.queue); err != nil {
+		fmt.Println("failed to unmarshal queue")
 	}
 }
 
@@ -139,12 +180,12 @@ func (r *Radio) singleIteration(t time.Time) {
 		_service.UpdateLink(*r.nowPlaying)
 
 		// r.broadcastUpdate(nowPlayingHook, *r.nowPlaying)
-		r.shm.WriteVar(string(nowPlayingHook), *r.nowPlaying)
+		r.shm.WriteVar(string(nowPlayingHook), *r.nowPlaying, true)
 		fmt.Println("now playing changed to", r.nowPlaying.LinkID)
 
 		r.ReorderQueue()
 		// r.broadcastUpdate(queueHook, r.queue)
-		r.shm.WriteVar(string(queueHook), r.queue)
+		r.shm.WriteVar(string(queueHook), r.queue, true)
 
 		// r.curState.NowPlaying = *r.nowPlaying
 		// r.curState.PlayerCurTimeSec = r.playerCurTimeSec
@@ -156,7 +197,7 @@ func (r *Radio) singleIteration(t time.Time) {
 	if r.nowPlaying != nil {
 		r.playerCurTimeSec = uint64(t.Unix()) - r.playerStartTimeSec
 		// r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
-		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec)
+		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec, true)
 		fmt.Println(t.Unix(), r.nowPlaying.LinkID, r.playerCurTimeSec)
 
 		if r.playerCurTimeSec > uint64(r.nowPlaying.Duration) {
@@ -165,7 +206,7 @@ func (r *Radio) singleIteration(t time.Time) {
 	} else {
 		r.playerCurTimeSec = 1 << 30
 		// r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
-		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec)
+		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec, true)
 	}
 }
 
@@ -235,6 +276,7 @@ func (r *Radio) Shutdown() {
 }
 
 func (r *Radio) broadcastUpdate(htype HookType, msg interface{}) {
+	fmt.Println("update to broadcast ", htype)
 	switch htype {
 	case nowPlayingHook:
 		for id := range r.nowPlayingHooks {

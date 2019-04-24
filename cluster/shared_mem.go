@@ -2,38 +2,50 @@ package cluster
 
 import (
 	"sync"
+	"time"
 )
 
 type UpdateEvent struct {
-	Varname string
-	Value   interface{}
+	Ts  time.Time
+	Mem interface{}
 }
 
 type SharedMem struct {
-	Shm     map[string]interface{}
-	ShmLock *sync.Mutex
+	Shm           map[string]interface{}
+	LastUpdatedAt time.Time
+	ShmLock       *sync.Mutex
 
 	// UpdateChan notifies the receiver that some update has happened
 	// whicn can be trasmitted to concerned nodes
 	// ONLY FOR MASTER
-	UpdateChan chan UpdateEvent
+	PeerChan   chan UpdateEvent
+	MasterChan chan UpdateEvent
 }
 
 func NewSharedMem() *SharedMem {
 	return &SharedMem{
-		Shm:        make(map[string]interface{}),
-		ShmLock:    &sync.Mutex{},
-		UpdateChan: make(chan UpdateEvent, 5),
+		Shm:           make(map[string]interface{}),
+		LastUpdatedAt: time.Now(),
+		ShmLock:       &sync.Mutex{},
+		MasterChan:    make(chan UpdateEvent, 5),
+		PeerChan:      make(chan UpdateEvent, 5),
 	}
 }
 
-func (this *SharedMem) WriteVar(varname string, value interface{}) {
+func (this *SharedMem) WriteVar(varname string, value interface{}, isMaster bool) {
 	this.ShmLock.Lock()
 	this.Shm[varname] = value
 	this.ShmLock.Unlock()
-	this.UpdateChan <- UpdateEvent{
-		Varname: varname,
-		Value:   value,
+
+	evt := UpdateEvent{
+		Ts:  time.Now(),
+		Mem: this.Shm,
+	}
+
+	if isMaster {
+		this.MasterChan <- evt
+		// } else {
+		// 	this.PeerChan <- evt
 	}
 }
 
@@ -45,6 +57,7 @@ func (this *SharedMem) Update(newmem map[string]interface{}) {
 	for varname, value := range newmem {
 		this.Shm[varname] = value
 	}
+	this.LastUpdatedAt = time.Now()
 	this.ShmLock.Unlock()
 }
 
