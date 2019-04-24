@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -62,7 +63,7 @@ func NewMeshNetwork(me NodeInfoT, authToken string) *MeshNetwork {
 		me:        me,
 
 		incomingServer: http.Server{
-			Addr: me.URL,
+			Addr: "0.0.0.0:" + strings.Split(me.URL, ":")[1],
 		},
 		incomingMux: nil,
 
