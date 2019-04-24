@@ -181,6 +181,9 @@ func (this *ClusterService) handleBullyMsg(msg Message) {
 }
 
 func (this *ClusterService) bullyOthers() {
+	this.IsLeader = false
+	this.leaderElected = false
+	this.lastBulliedAt = time.Now()
 	this.broadcastChan <- Message{
 		NodeID:  this.meshNet.me.NodeID,
 		MsgType: bullyMsg,
@@ -194,6 +197,7 @@ func (this *ClusterService) Start() {
 	wg.Add(3)
 	go this.meshNet.setupIncomingServer(this.clusterUrl, &wg)
 	otherNodes := this.askDiscoveryServiceForPeers()
+	log.Println("discovery: ", len(otherNodes), " peers found")
 	go this.meshNet.setupOutgoingConn(otherNodes, &wg)
 	go this.manageIncomingMessages(&wg)
 	wg.Wait()

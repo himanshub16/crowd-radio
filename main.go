@@ -17,13 +17,14 @@ import (
 )
 
 var (
-	runDs      bool
-	apiUrl     string
-	discoUrl   string
-	clusterUrl string
-	nodeID     string
-	authToken  string
-	wg         sync.WaitGroup
+	runDs        bool
+	apiUrl       string
+	discoUrl     string
+	clusterUrl   string
+	nodeID       string
+	authToken    string
+	electionOnly bool
+	wg           sync.WaitGroup
 )
 
 func parseFlags() {
@@ -32,6 +33,7 @@ func parseFlags() {
 	flag.StringVar(&discoUrl, "discourl", "127.0.0.1:4000", "URL for cluster discovery")
 	flag.StringVar(&clusterUrl, "clusterurl", "ws://127.0.0.1:5000", "URL for cluster service to start")
 	flag.StringVar(&authToken, "authtoken", "secrettoken", "Auth token for cluster nodes")
+	flag.BoolVar(&electionOnly, "electiononly", false, "Demo election process")
 
 	u, _ := uuid.NewUUID()
 	nodeID = u.String()
@@ -104,18 +106,23 @@ func main() {
 		select {
 		case <-interrupt:
 			c.Shutdown()
-			r.Shutdown()
-			apiRouter.Shutdown(context.Background())
-			log.Println("stopping api router")
-		case isLeader := <-c.SwitchMode:
-			if isLeader {
-				r.SwitchMode(masterRadio)
+			if !electionOnly {
+				r.Shutdown()
 				apiRouter.Shutdown(context.Background())
 				log.Println("stopping api router")
-			} else {
-				r.SwitchMode(peerRadio)
-				go apiRouter.Start(apiUrl)
-				log.Println("starting http router")
+			}
+		case isLeader := <-c.SwitchMode:
+			log.Println("isLeader > ", isLeader)
+			if !electionOnly {
+				if isLeader {
+					r.SwitchMode(masterRadio)
+					apiRouter.Shutdown(context.Background())
+					log.Println("stopping api router")
+				} else {
+					r.SwitchMode(peerRadio)
+					go apiRouter.Start(apiUrl)
+					log.Println("starting http router")
+				}
 			}
 		}
 	}
