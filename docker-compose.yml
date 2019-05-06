@@ -1,0 +1,114 @@
+version: "3"
+
+volumes:
+  pgdata:
+
+
+services:
+  postgres:
+    image: postgres
+    container_name: upnext-db
+    volumes:
+      - pgdata:/var/lib/postgres/data
+    ports:
+      - 5432:5432
+    network_mode: host
+
+  discovery:
+    build:
+      context: ./cmd/discovery_service
+      dockerfile: Dockerfile.discovery
+      args:
+        - http_proxy
+        - https_proxy
+    container_name: upnext-discovery
+    ports:
+      - 9090:9090
+    network_mode: host
+    command: ./discovery_service -url 0.0.0.0:9090 -authtoken ${AUTHTOKEN}
+
+  backend_3030:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - http_proxy
+        - https_proxy
+    container_name: upnext-backend-3030
+    environment:
+      - DB_URL
+      - http_proxy
+      - https_proxy
+      - YOUTUBE_API_KEY
+    ports:
+      - 3030:3030
+    network_mode: host
+    command: ./upnext-backend -authtoken ${AUTHTOKEN} -discourl ${DISCOVERY_URL} -clusterurl ${CLUSTER_URL_3030} -apiurl "0.0.0.0:3030"
+
+  backend_4040:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - http_proxy
+        - https_proxy
+    container_name: upnext-backend-4040
+    environment:
+      - DB_URL
+      - http_proxy
+      - https_proxy
+      - YOUTUBE_API_KEY
+    ports:
+      - 4040:4040 
+    network_mode: host
+    command: ./upnext-backend -authtoken ${AUTHTOKEN} -discourl ${DISCOVERY_URL} -clusterurl ${CLUSTER_URL_4040} -apiurl "0.0.0.0:4040"
+
+
+  backend_5050:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - http_proxy
+        - https_proxy
+    container_name: upnext-backend-5050
+    environment:
+      - DB_URL
+      - http_proxy
+      - https_proxy
+      - YOUTUBE_API_KEY
+    ports:
+      - 5050:5050
+    network_mode: host
+    command: ./upnext-backend -authtoken ${AUTHTOKEN} -discourl ${DISCOVERY_URL} -clusterurl ${CLUSTER_URL_5050} -apiurl "0.0.0.0:5050"
+
+
+  backend_6060:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - http_proxy
+        - https_proxy
+    container_name: upnext-backend-6060
+    environment:
+      - DB_URL
+      - http_proxy
+      - https_proxy
+      - YOUTUBE_API_KEY
+    ports:
+      - 6060:6060
+    network_mode: host
+    command: ./upnext-backend -authtoken ${AUTHTOKEN} -discourl ${DISCOVERY_URL} -clusterurl ${CLUSTER_URL_6060} -apiurl "0.0.0.0:6060"
+
+
+  nginx:
+    image: nginx:alpine
+    container_name: upnext-nginx
+    ports:
+      - 8000:8000
+    network_mode: host
+    environment:
+      - NGINX_PORT=8000
+    volumes:
+      - ./nginx-load-balancer.conf:/etc/nginx/conf.d/upnext.conf

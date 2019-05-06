@@ -1,0 +1,6 @@
+FROM golang:alpine AS builder
+
+COPY main.go .
+RUN go build -o discovery_service
+
+CMD ["discovery_service"]
