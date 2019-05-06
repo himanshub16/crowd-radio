@@ -208,6 +208,10 @@ func (r *Radio) singleIteration(t time.Time) {
 		// r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
 		r.shm.WriteVar(string(playerTimeHook), r.playerCurTimeSec, true)
 	}
+
+	r.broadcastUpdate(nowPlayingHook, r.nowPlaying)
+	r.broadcastUpdate(queueHook, r.queue)
+	r.broadcastUpdate(playerTimeHook, r.playerCurTimeSec)
 }
 
 func (r *Radio) Start() {

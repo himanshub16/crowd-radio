@@ -102,6 +102,7 @@ func main() {
 	apiRouter := NewHTTPRouter(service, r)
 
 	go c.Start()
+	go apiRouter.Start(apiUrl)
 	for {
 		select {
 		case <-interrupt:
@@ -116,11 +117,11 @@ func main() {
 			if !electionOnly {
 				if isLeader {
 					r.SwitchMode(masterRadio)
-					apiRouter.Shutdown(context.Background())
+					// apiRouter.Shutdown(context.Background())
 					log.Println("stopping api router")
 				} else {
 					r.SwitchMode(peerRadio)
-					go apiRouter.Start(apiUrl)
+					// go apiRouter.Start(apiUrl)
 					log.Println("starting http router")
 				}
 			}

@@ -352,9 +352,12 @@ func radioGetQueueHandler(c echo.Context) error {
 func tellIfLeader(c echo.Context) error {
 	switch radio.radioType {
 	case masterRadio:
-		return c.JSON(http.StatusOK, echo.Map{
-			"message": "I am the leader",
+		return c.JSON(http.StatusExpectationFailed, echo.Map{
+			"message": "I am not the leader",
 		})
+		// return c.JSON(http.StatusOK, echo.Map{
+		// 	"message": "I am the leader",
+		// })
 
 	case peerRadio:
 		return c.JSON(http.StatusExpectationFailed, echo.Map{
